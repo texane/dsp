@@ -1,0 +1,41 @@
+[ FFT algorithm ]
+
+the FFT algorithm works by decomposing a N points time domain signal into
+N signal of 1 point, finding the frequency and synthetizing the frequency
+spectrum.
+
+
+[[ step 0: rearrange samples using bit reversal ]]
+
+interlaced decomposition: each time the signal is broken into 2 an interlaced
+decomposition is done.
+
+there are log2(N) stages
+
+bit reversal: 0111 becomes 1110
+
+
+[[ step 1: compute the frequency spectra of the individual singals ]]
+
+since the signal are single point, the frequecny is this point and nothing
+is requred
+
+
+[ complex FFT ]
+
+the real DFT does not use complex numbers. The real are splitted in 2 components,
+called the real and imaginary parts, but are not complex numbers. This is more as
+if double x[2] were used in C, as opposed to complex x. Those 2 components real
+numbers and complex numbers both have 2 parts, and this can be misleading. To
+complicate things more, real DFT is often done using complex number, since the
+physical memory layout fit. This technique is sometimes called substitution.
+
+As seen, real DFT use some hacks easily solved by computer programs, but difficult
+to handle in mathematical equations:
+. complex numbers have properties, esp. regarding multiplication and division. Substituted
+numbers have not the same properties.
+. some application use negative frequencies which are ignored in in real DFT. It is
+used by mirroring the array elements (0 the symetry axis) in a computer program, but
+require special handling in mathematical equations.
+. 0 and N/2 real parts are special and must be divided by 2. Fixing that is easily
+done by a computer program, but results in special cases in mathematical equations.
