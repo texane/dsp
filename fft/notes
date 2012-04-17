@@ -39,3 +39,8 @@ used by mirroring the array elements (0 the symetry axis) in a computer program,
 require special handling in mathematical equations.
 . 0 and N/2 real parts are special and must be divided by 2. Fixing that is easily
 done by a computer program, but results in special cases in mathematical equations.
+
+time domain signal is composed of complex numbers but it is not required these numbers
+have an imaginary part.
+
+complex fourier transform includes negative frequencies and run from to N - 1
