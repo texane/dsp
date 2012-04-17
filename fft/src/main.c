@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
+#include <fftw3.h>
 
 
 #if 0
@@ -76,74 +78,192 @@ static inline unsigned int compute_sampl_buf_size
 }
 
 
-static void fft(const double* x, unsigned int n, double* xx)
-{
-}
+/* frequency to fft bin routines */
 
-
-static void ifft(const double* xx, unsigned int n, double* x)
-{
-}
-
-
-static void filter(const double* , unsigned int n)
-{
-}
-
-
-static inline unsigned int freq_to_bin
-(unsigned int freq, unsigned int fsampl, unsigned int fft_size)
+static inline unsigned int freq_to_bin(unsigned int freq, double fband)
 {
   /* frequency to fft bin */
-  return (2 * fft_size * freq) / fsampl;
+  return (unsigned int)(freq / fband);
 }
 
-static inline unsigned int bin_to_freq
-(unsigned int bin, unsigned int fsampl, unsigned int fft_size)
+static inline double bin_to_freq(unsigned int bin, double fband)
 {
   /* fft bin to frequency */
-  return (fsampl * bin) / (2 * fft_size);
+  return fband * (double)bin;
 }
 
-static inline void freqs_to_bin
-(const unsigned int* freqs, unsigned int nfreq, unsigned int* bins)
+static inline void freqs_to_bins
+(
+ unsigned int* bins,
+ const unsigned int* freqs, unsigned int nfreq,
+ double fband
+)
 {
-  
+  unsigned int i;
+  for (i = 0; i < nfreq; ++i) bins[i] = freq_to_bin(freqs[i], fband);
 }
+
+static inline void bins_to_freqs
+(
+ unsigned int* freqs,
+ const unsigned int* bins, unsigned int nbins,
+ double fband
+)
+{
+  unsigned int i;
+  for (i = 0; i < nbins; ++i) freqs[i] = bin_to_freq(bins[i], fband);
+}
+
+
+/* compute normalized power spectrum */
 
 static void fft_to_power_spectrum
-(const double* fft, unsigned int fft_size)
+(double* ps, const double* xx, unsigned int nxx)
 {
+  /* xx the real fft coeffs */
+  /* nxx the xx count */
+
+  double sum = 0;
+  unsigned int i;
+
+  for (i = 0; i < nxx; ++i)
+  {
+    const double re = xx[i * 2 + 0];
+    const double im = xx[i * 2 + 1];
+    const double p = sqrt(re * re + im * im);
+
+    ps[i] = p;
+    sum += p;
+  }
+
+  /* normalize (percent of) */
+  if (sum > 0.00001) for (i = 0; i < nxx; ++i) ps[i] /= sum;
 }
 
 
+/* compute the real dft using fft algorithm */
+
+static void fft
+(double* xx, const double* x, unsigned int n)
+{
+  /* n the size of the transform */
+
+  fftw_plan plan;
+  fftw_complex* out;
+  unsigned int i;
+
+  out = fftw_malloc((n / 2 + 1) * sizeof(fftw_complex));
+  plan = fftw_plan_dft_r2c_1d(n, (double*)x, out, FFTW_ESTIMATE);
+
+  fftw_execute(plan);
+
+  for (i = 0; i < n / 2 + 1; ++i)
+  {
+    xx[i * 2 + 0] = out[i][0];
+    xx[i * 2 + 1] = out[i][1];
+  }
+
+  fftw_destroy_plan(plan);
+  fftw_free(out);
+}
+
+
+/* monotone generator */
+
+typedef struct tonegen
+{
+  /* current angle, angular step */
+  double w;
+  double dw;
+} tonegen_t;
+
+static void tonegen_init(tonegen_t* gen, double freq, double fsampl)
+{
+  /* freq the tone frequency */
+  /* fsampl the sampling frequency */
+
+  gen->w = 0.0;
+  gen->dw = (2.0 * M_PI * freq) / fsampl;
+}
+
+static void tonegen_read(tonegen_t* gen, double* buf, unsigned int n)
+{
+  unsigned int i;
+  for (i = 0; i < n; ++i, gen->w += gen->dw) buf[i] = sin(gen->w);
+}
+
+
+/* millisecond to sample count */
+
+static inline unsigned int ms_to_nsampl
+(unsigned int fsampl, unsigned int ms)
+{
+  return (fsampl * ms) / 1000;
+}
+
+
+/* bandwidth frequency to sample count */
+
+static inline unsigned int fband_to_nsampl(double fband, double fsampl)
+{
+  return fsampl / fband;
+}
+
+static inline double nsampl_to_fband(unsigned int nsampl, double fsampl)
+{
+  return fsampl / (double)nsampl;
+}
+
+
+/* main */
 
 int main(int ac, char** av)
 {
-#if 0
-  /* the constraints are linked to the FFT bandwidth */
+  static const double fsampl = 48000.0;
+  static const double ftone = 4000.0;
 
-  dsp_idev_t idev;
-  dsp_odev_t odev;
+  /* may be updated for nsampl to fit pow2 */
+  double fband = 50.0;
 
-  /* sizes are sample count */
-  unsigned int buf_size;
-  unsigned int read_size;
-  unsigned int fft_size;
+  unsigned int log2_nsampl;
 
-  while (1)
+  tonegen_t gen;
+  unsigned int nsampl;
+  unsigned int nbin;
+  unsigned int i;
+  double* x;
+  double* xx;
+  double* ps;
+
+  tonegen_init(&gen, ftone, fsampl);
+
+  /* compute nsampl according to fband. adjust to be pow2 */
+  nsampl = fband_to_nsampl(fband, fsampl);
+  log2_nsampl = (unsigned int)log2(nsampl);
+  if (nsampl != (1 << log2_nsampl))
   {
-    if (off + read_size > buf_size)
-    {
-      memcpy(buf, , );
-      off = 0;
-    }
-
-    dsp_dev_read(&dev, buf + off, read_size);
+    nsampl = 1 << (log2_nsampl + 1);
+    fband = nsampl_to_fband(nsampl, fsampl);
   }
-#endif
 
-  printf("%u\n", compute_sampl_buf_size(48000, 1, 10));
+  nbin = nsampl / 2 + 1;
+
+  x = malloc(nsampl * sizeof(double));
+  xx = malloc(nbin * 2 * sizeof(double));
+  ps = malloc(nbin * sizeof(double));
+
+  tonegen_read(&gen, x, nsampl);
+
+  fft(xx, x, nsampl);
+
+  fft_to_power_spectrum(ps, xx, nbin);
+
+  for (i = 0; i < nbin; ++i)
+    printf("%lf %lf\n", bin_to_freq(i, fband), ps[i]);
+
+  free(x);
+  free(xx);
+  free(ps);
 
   return 0;
 }
