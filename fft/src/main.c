@@ -168,28 +168,50 @@ static void fft
 }
 
 
-/* monotone generator */
+/* tone generator */
 
 typedef struct tonegen
 {
+  /* tone count */
+  unsigned int n;
+
   /* current angle, angular step */
-  double w;
-  double dw;
+  double w[32];
+  double dw[32];
+
 } tonegen_t;
 
-static void tonegen_init(tonegen_t* gen, double freq, double fsampl)
+static void tonegen_init(tonegen_t* gen)
+{
+  gen->n = 0;
+}
+
+static void tonegen_add(tonegen_t* gen, double freq, double fsampl)
 {
   /* freq the tone frequency */
   /* fsampl the sampling frequency */
 
-  gen->w = 0.0;
-  gen->dw = (2.0 * M_PI * freq) / fsampl;
+  const unsigned int i = gen->n++;
+
+  gen->w[i] = 0.0;
+  gen->dw[i] = (2.0 * M_PI * freq) / fsampl;
 }
 
 static void tonegen_read(tonegen_t* gen, double* buf, unsigned int n)
 {
   unsigned int i;
-  for (i = 0; i < n; ++i, gen->w += gen->dw) buf[i] = sin(gen->w);
+  unsigned int j;
+
+  for (i = 0; i < n; ++i)
+  {
+    buf[i] = 0;
+
+    for (j = 0; j < gen->n; ++j)
+    {
+      buf[i] += sin(gen->w[j]);
+      gen->w[j] += gen->dw[j];
+    }
+  }
 }
 
 
@@ -220,7 +242,8 @@ static inline double nsampl_to_fband(unsigned int nsampl, double fsampl)
 int main(int ac, char** av)
 {
   static const double fsampl = 48000.0;
-  static const double ftone = 4000.0;
+
+  static const double ftones[] = { 400.0, 666.0, 4000.0, 22222.0 };
 
   /* may be updated for nsampl to fit pow2 */
   double fband = 50.0;
@@ -235,7 +258,10 @@ int main(int ac, char** av)
   double* xx;
   double* ps;
 
-  tonegen_init(&gen, ftone, fsampl);
+  /* init tone generator */
+  tonegen_init(&gen);
+  for (i = 0; i < sizeof(ftones) / sizeof(double); ++i)
+    tonegen_add(&gen, ftones[i], fsampl);
 
   /* compute nsampl according to fband. adjust to be pow2 */
   nsampl = fband_to_nsampl(fband, fsampl);
