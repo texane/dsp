@@ -55,15 +55,17 @@ static void conv1
 
 int main(int ac, char** av)
 {
+  unsigned int i;
+
+  /* generate inputs */
+#if 0
+
 #define NX 80
 #define NH 30
-
   double x[NX];
   double y0[NX];
   double y1[NX];
   double h[NH];
-
-  unsigned int i;
 
   /* low + hi freqs */
   for (i = 0; i < NX; ++i) x[i] = 0;
@@ -73,6 +75,18 @@ int main(int ac, char** av)
   /* inverting attenuator kernel */
   for (i = 0; i < NH; ++i) h[i] = 0;
   h[15] = -0.5;
+
+#elif 1
+
+#define NH 9
+#define NX NH
+  double x[NX] = { 1, -0.5, -0.25, 0, };
+  double h[NH] = { 0, -1, -1.25, 2, 1.3, 1.3, 0.75, 0, -0.75 };
+  double y0[NX];
+  double y1[NX];
+
+#endif
+
 
   conv0(x, NX, h, NH, y0);
   conv1(x, NX, h, NH, y1);
