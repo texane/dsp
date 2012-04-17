@@ -44,3 +44,8 @@ time domain signal is composed of complex numbers but it is not required these n
 have an imaginary part.
 
 complex fourier transform includes negative frequencies and run from to N - 1
+
+
+[ TODO ]
+http://opus.bath.ac.uk/11395
+http://flylib.com/books/en/2.729.1.137/1
