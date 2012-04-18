@@ -47,5 +47,9 @@ complex fourier transform includes negative frequencies and run from to N - 1
 
 
 [ TODO ]
-http://opus.bath.ac.uk/11395
-http://flylib.com/books/en/2.729.1.137/1
+slidiing DFT: http://opus.bath.ac.uk/11395
+more on DFT and freq analysis: http://flylib.com/books/en/2.729.1.137/1
+FIR LINUX library: http://www.ludd.luth.se/~torger/brutefir.html
+stripped ALSA library: http://www.alsa-project.org/main/index.php/SALSA-Library
+LINUX audio: free-electrons.com/doc/embedded_linux_audio.pdf
+LINUX realtime: http://free-electrons.com/docs/realtime/
