@@ -1,0 +1,114 @@
+[ post notes ]
+in the following, x[N] represent the signal x samples from 0 to N
+and x[n] represent the sample of signal x at index n. this is the
+convention used in DSP GUIDE.
+
+
+[ signal decomposition ]
+
+impulse and fourier are the 2 fundamental decompositions in DSP.
+
+[[ impulse decomposition ]]
+a signal of N samples is decomposed into N signals of N samples with
+every sample to 0 except the ith sample has value x[i]
+
+x[N] is decompose in N signal such that:
+{
+x_i[n] = x[n] if i == n,
+x_i[n] = 0 otherwise.
+}
+
+[[ step decomposition ]]
+x[N] is divided into N signals x_i[N] where x_i[N] is:
+{
+0 for x_i[0:i]
+x[i] - x[i - 1] for x_i[i:N]
+}
+it characterizes the signal by the difference between adjacent samples.
+thus, systems are characterized by how they respond to a change in the input.
+
+[[ even odd decomposition ]]
+x[N] is decomposed into 2 signal, x_e[N] and x_o[N] such that:
+{
+ x_e[n] = (x[n] + x[N - n]) / 2;
+ x_o[n] = (x[n] + x[N - n]) / 2;
+}
+
+TODO: more on this later
+
+[[ interlaced decomposition ]]
+x[N] is decomposed into 2 signals, such that:
+{
+x_e[n] = x[n] if n % 2 == 0, x_e[n] = 0 otherwise
+x_o[n] = x[n] if n % 2 == 1, x_o[n] = 0 otherwise
+}
+
+[[ fourier decomposition ]]
+TODO
+
+
+[ convolution ]
+
+the process to feed the N into the linear system and then doing the addition
+(synthese) of the resulting signal is called a convolution when impulse
+decomposition is used.
+
+the delta function is a normalized impulse signal, that is:
+{
+delta[n] = 1 if x_i[n] != 0
+delta[n] = 0 otherwise
+}
+
+impulse response is the response of a system whose input is delta. the impulse
+response is called h[n].
+
+the impulse can be represented as a scaled and shifted delta function. Because
+of a system linearity, the scale and shift applied to the delta function can
+be applied to the system output. Thus, knowing a system response to delta is
+enough to know the system response to the signal.
+
+convolution is a mathematical operation taking the input signal and impulse
+response to produce an output signal.
+
+there are 2 ways to see convolution:
+input signal viewpoint
+output signal viewpoint
+
+
+
+[ filter overview ]
+
+each individual response fully defines the filter.
+
+filtering the signal is done by convolving the signal with the impulse
+response. impulse used this way is called the filter kernel.
+
+another way of making a filter is done by using recursion coefficients (TODO)
+
+Filters using recursion coefficients are called IIRs filters. Filters using
+convolution are called FIRs filters. 
+
+every linear filter has:
+. an impulse response, system output when the input is an impulse.
+. a step response, system time output when the impulse is a step,
+. a frequency response, DFT of the impulse response.
+
+
+[ filter step response ]
+
+step response is a time domain analysis used to measure the output of a stable
+system when its input varies from 0 to 1 (heaviside like function). It gives
+information about the ability of a system to reach a stationnary state when
+starting from another. Several parameters are involved:
+. rising time
+. overshoot (settling time)
+. phase linearity
+
+
+[ filter frequency response ]
+
+frequency domain analaysis used to measure the output of a system in response
+to an impulse. Parameters:
+. roll off speed,
+. rippling of flat passband,
+. stopband attenuation.

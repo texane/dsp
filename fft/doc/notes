@@ -52,4 +52,5 @@ more on DFT and freq analysis: http://flylib.com/books/en/2.729.1.137/1
 FIR LINUX library: http://www.ludd.luth.se/~torger/brutefir.html
 stripped ALSA library: http://www.alsa-project.org/main/index.php/SALSA-Library
 LINUX audio: free-electrons.com/doc/embedded_linux_audio.pdf
-LINUX realtime: http://free-electrons.com/docs/realtime/
+LINUX realtime: http://free-electrons.com/docs/realtime/ [ done ]
+http://gmeteor.sourceforge.net
