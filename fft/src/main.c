@@ -244,9 +244,11 @@ int main(int ac, char** av)
   static const double fsampl = 48000.0;
 
   static const double ftones[] = { 400.0, 666.0, 4000.0, 22222.0 };
+  /* static const double ftones[] = { 400.0, 666.0, 4000.0 }; */
+  /* static const double ftones[] = { 400.0 }; */
 
   /* may be updated for nsampl to fit pow2 */
-  double fband = 50.0;
+  double fband = 20.0;
 
   unsigned int log2_nsampl;
 
@@ -254,14 +256,10 @@ int main(int ac, char** av)
   unsigned int nsampl;
   unsigned int nbin;
   unsigned int i;
-  double* x;
-  double* xx;
-  double* ps;
-
-  /* init tone generator */
-  tonegen_init(&gen);
-  for (i = 0; i < sizeof(ftones) / sizeof(double); ++i)
-    tonegen_add(&gen, ftones[i], fsampl);
+  double* x = NULL;
+  double* xx = NULL;
+  double* ps = NULL;
+  double* gains = NULL;
 
   /* compute nsampl according to fband. adjust to be pow2 */
   nsampl = fband_to_nsampl(fband, fsampl);
@@ -278,7 +276,21 @@ int main(int ac, char** av)
   xx = malloc(nbin * 2 * sizeof(double));
   ps = malloc(nbin * sizeof(double));
 
+  /* init tone generator and output samples */
+  tonegen_init(&gen);
+  for (i = 0; i < sizeof(ftones) / sizeof(double); ++i)
+    tonegen_add(&gen, ftones[i], fsampl);
   tonegen_read(&gen, x, nsampl);
+
+  /* set some frequency gains to 3 db */
+  gains = malloc(nbin * sizeof(double));
+  for (i = 0; i < nbins; ++i) gains[i] = 0;
+  gains[freq_to_bin(666.0, fband)] = 3;
+  gains[freq_to_bin(22222.0, fband)] = 3;
+
+  /* TODO: fir(x, gains); */
+
+#if 1 /* compute print the power spectrum */
 
   fft(xx, x, nsampl);
 
@@ -287,9 +299,17 @@ int main(int ac, char** av)
   for (i = 0; i < nbin; ++i)
     printf("%lf %lf\n", bin_to_freq(i, fband), ps[i]);
 
-  free(x);
-  free(xx);
-  free(ps);
+#else /* print the signal time domain */
+
+  for (i = 0; i < nsampl; ++i)
+    printf("%lf %lf\n", (double)i / fsampl, x[i]);
+
+#endif
+
+  if (x) free(x);
+  if (xx) free(xx);
+  if (ps) free(ps);
+  if (gains) free(gains);
 
   return 0;
 }
