@@ -168,6 +168,82 @@ static void fft
 }
 
 
+/* inplace finite impulse response filter */
+
+#if 0 /* unused */
+static inline unsigned int min_uint(unsigned int a, unsigned int b)
+{
+  return a < b ? a : b;
+}
+#endif /* unused */
+
+static void convolve
+(
+ double** xx, unsigned int* nxx,
+ const double* x, unsigned int nx,
+ const double* h, unsigned int nh
+)
+{
+  int i;
+  int j;
+
+  *nxx = nx + nh;
+  *xx = malloc((*nxx) * sizeof(double));
+
+  for (i = 0; i < (int)*nxx; ++i)
+  {
+    (*xx)[i] = 0;
+
+    for (j = 0; j < (int)nh; ++j)
+    {
+      if (i - j < 0) continue ;
+      if (i - j >= nh) continue ;
+
+      (*xx)[i] += h[j] * x[i - j];
+    }
+  }
+}
+
+static void fir
+(
+ double** xx, unsigned int* nxx,
+ const double* x, unsigned int nx
+)
+{
+  static const double h[] =
+  {
+#if 0
+    1964.09456418888,
+    -10208.338288738,
+    16795.2945884697,
+    -0.0,
+    -23281.999649468,
+    0.0572589041085133,
+    37237.1250088098,
+    -0.0,
+    -50515.8159352444,
+    -0.0,
+    56020.202875443,
+    -0.0,
+    -50515.8159352444,
+    -0.0,
+    37237.1250088098,
+    0.0572589041085133,
+    -23281.999649468,
+    -0.0,
+    16795.2945884697,
+    -10208.338288738,
+    1964.09456418888
+#else
+# include "/tmp/fu.h"
+#endif
+  };
+
+  static const unsigned int nh = sizeof(h) / sizeof(h[0]);
+  convolve(xx, nxx, x, nx, h, nh);
+}
+
+
 /* tone generator */
 
 typedef struct tonegen
@@ -256,6 +332,7 @@ int main(int ac, char** av)
   unsigned int nsampl;
   unsigned int nbin;
   unsigned int i;
+  unsigned int nxx;
   double* x = NULL;
   double* xx = NULL;
   double* ps = NULL;
@@ -273,7 +350,6 @@ int main(int ac, char** av)
   nbin = nsampl / 2 + 1;
 
   x = malloc(nsampl * sizeof(double));
-  xx = malloc(nbin * 2 * sizeof(double));
   ps = malloc(nbin * sizeof(double));
 
   /* init tone generator and output samples */
@@ -282,16 +358,17 @@ int main(int ac, char** av)
     tonegen_add(&gen, ftones[i], fsampl);
   tonegen_read(&gen, x, nsampl);
 
+#if 0 /* unused */
   /* set some frequency gains to 3 db */
   gains = malloc(nbin * sizeof(double));
   for (i = 0; i < nbins; ++i) gains[i] = 0;
   gains[freq_to_bin(666.0, fband)] = 3;
   gains[freq_to_bin(22222.0, fband)] = 3;
+#endif
 
-  /* TODO: fir(x, gains); */
+#if 0 /* compute print the power spectrum */
 
-#if 1 /* compute print the power spectrum */
-
+  xx = malloc(nbin * 2 * sizeof(double));
   fft(xx, x, nsampl);
 
   fft_to_power_spectrum(ps, xx, nbin);
@@ -301,8 +378,12 @@ int main(int ac, char** av)
 
 #else /* print the signal time domain */
 
+  fir(&xx, &nxx, x, nsampl);
+
   for (i = 0; i < nsampl; ++i)
-    printf("%lf %lf\n", (double)i / fsampl, x[i]);
+  {
+    printf("%lf %lf %lf\n", (double)i / fsampl, xx[i], x[i]);
+  }
 
 #endif
 
