@@ -94,7 +94,9 @@ the correlation is done using convolution but with one of the 2 signals must be
 inversed.
 
 
-[ filter overview ]
+[ filtering ]
+
+[[ overview ]]
 
 each individual response fully defines the filter.
 
@@ -112,7 +114,7 @@ every linear filter has:
 . a frequency response, DFT of the impulse response.
 
 
-[ filter step response ]
+[[ filter step response ]]
 
 step response is a time domain analysis used to measure the output of a stable
 system when its input varies from 0 to 1 (heaviside like function). It gives
@@ -123,10 +125,18 @@ starting from another. Several parameters are involved:
 . phase linearity
 
 
-[ filter frequency response ]
+[[ filter frequency response ]]
 
 frequency domain analaysis used to measure the output of a system in response
 to an impulse. Parameters:
 . roll off speed,
 . rippling of flat passband,
 . stopband attenuation.
+
+
+[[ arbitrary frequency response FIR filters with GMETEOR ]]
+
+GMETEOR computes the frequency response coefficients of the filter, h[N] where
+the coefficient h[i] is the amplitude of the sine wave of frequency i. finding
+the exact coefficients would require a response of inifinite length. Thus, GMETEOR
+finds an approximation given the constraints expressed in its input file.
