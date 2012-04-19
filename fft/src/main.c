@@ -235,7 +235,7 @@ static void fir
     -10208.338288738,
     1964.09456418888
 #else
-# include "/tmp/fu.h"
+# include "/tmp/bar.h"
 #endif
   };
 
@@ -319,7 +319,7 @@ int main(int ac, char** av)
 {
   static const double fsampl = 48000.0;
 
-  static const double ftones[] = { 3000.0, 12000.0 };
+  static const double ftones[] = { 100.0, 12000.0 };
   /* static const double ftones[] = { 400.0, 666.0, 4000.0, 22222.0 }; */
   /* static const double ftones[] = { 400.0, 666.0, 4000.0 }; */
   /* static const double ftones[] = { 400.0 }; */
@@ -381,7 +381,7 @@ int main(int ac, char** av)
 
   fir(&xx, &nxx, x, nsampl);
 
-  for (i = 0; i < (nsampl < 100 ? nsampl : 100); ++i)
+  for (i = 0; i < (nsampl < 1000 ? nsampl : 1000); ++i)
   {
     printf("%lf %lf %lf\n", (double)i / fsampl, xx[i], x[i]);
   }
