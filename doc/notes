@@ -70,10 +70,28 @@ enough to know the system response to the signal.
 convolution is a mathematical operation taking the input signal and impulse
 response to produce an output signal.
 
+TODO
 there are 2 ways to see convolution:
 input signal viewpoint
 output signal viewpoint
 
+convolving a signal with the delta function results in the original signal. that
+makes delta the identity for the convolution operator.
+
+both convolution and correlation(see after) run in O(N * M) time. A more efficient
+algorithm to implement convolution is to use the FFT convolution algorithm.
+
+
+[ correlation ]
+
+mathematical operation between 2 signals. the samples in the output singal is a
+measure of a much the second signal resembles the first sigal at that location.
+
+this is the optimal technique to detect a known waveform, and if 2 samples match
+no other linear system can result in a higher peak. (TOCHECK)
+
+the correlation is done using convolution but with one of the 2 signals must be
+inversed.
 
 
 [ filter overview ]
