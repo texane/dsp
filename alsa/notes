@@ -1,0 +1,14 @@
+[ future implementation ]
+
+the futur implement will assume 2 DMA(one for write, one for read). the
+main loop always start the 2 transfer first. then filter_apply gets called.
+at the end of the iteration, check for DMA transfers done OR deadline elapsed. 
+
+
+[ fixme ]
+
+dev_{write,read}_all: implement function that io all samples and fail
+if requested timeout elapses
+
+how to start an asynchronous read / write transfer and test for completion.
+This should be the role of nonblocking mode, but currently used to block
