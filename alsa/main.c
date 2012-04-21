@@ -129,14 +129,9 @@ static int setup_common_dev(snd_pcm_t* pcm)
     goto on_error;
   }
 
-  if ((err = snd_pcm_nonblock(pcm, 1)))
-  {
-    printf("[!] snd_pcm_nonblock: %s\n", snd_strerror(err));
-    goto on_error;
-  }
-
  on_error:
-  snd_pcm_hw_params_free(parms);
+  /* FIXME: is this a leak not to free here */
+  if (err) snd_pcm_hw_params_free(parms);
 
   return err;
 } 
@@ -145,7 +140,7 @@ static int open_capture_dev(snd_pcm_t** pcm, const char* name)
 {
   int err;
 
-  err = snd_pcm_open(pcm, name, SND_PCM_STREAM_CAPTURE, 0);
+  err = snd_pcm_open(pcm, name, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK);
   if (err < 0)
   {
     printf("[!] snd_pcm_open(capture): %s\n", snd_strerror(err));
@@ -166,7 +161,7 @@ static int open_playback_dev(snd_pcm_t** pcm, const char* name)
 {
   int err;
 
-  err = snd_pcm_open(pcm, name, SND_PCM_STREAM_PLAYBACK, 0);
+  err = snd_pcm_open(pcm, name, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
   if (err < 0)
   {
     printf("[!] snd_pcm_open(playback): %s\n", snd_strerror(err));
@@ -185,11 +180,14 @@ static int open_playback_dev(snd_pcm_t** pcm, const char* name)
 
 static inline void close_dev(snd_pcm_t* pcm)
 {
+  /* FIXME: does it free hw_params */
+  snd_pcm_hw_free(pcm);
   snd_pcm_close(pcm);
 }
 
 static int start_dev(snd_pcm_t* pcm)
 {
+#if 0 /* FIXME: automatically called */
   int err;
 
   if ((err = snd_pcm_prepare(pcm)))
@@ -197,6 +195,9 @@ static int start_dev(snd_pcm_t* pcm)
     printf("[!] snd_pcm_prepare(): %s\n", snd_strerror(err));
     return -1;
   }
+#endif
+
+  snd_pcm_start(pcm);
 
   return 0;
 }
@@ -255,6 +256,14 @@ static int setup_sched(void)
 
 static void trans(int16_t* buf, unsigned int nsampl)
 {
+#if 0
+  unsigned int i;
+  for (i = 0; i < (nsampl * 2); ++i) buf[i] = (int16_t)rand();
+#else
+  /* amplifier effect */
+  unsigned int i;
+  for (i = 0; i < (nsampl * 2); ++i) buf[i] *= 4;
+#endif
 }
 
 
@@ -283,6 +292,7 @@ int main(int ac, char** av)
   struct timeval tm_now;
   struct timeval tm_sub;
 
+  unsigned int elasped_ms;
   unsigned int deadline_ms;
 
   unsigned int iter = 0;
@@ -309,36 +319,56 @@ int main(int ac, char** av)
 
   while (1)
   {
-    ++iter;
-
-    if ((err = snd_pcm_readi(idev, bufs[rbuf], nsampl)) != nsampl)
+    snd_pcm_wait(idev, deadline_ms);
+  read_again:
+    /* if ((err = snd_pcm_readi(idev, bufs[rbuf], nsampl)) != nsampl) */
+    if ((err = snd_pcm_readi(idev, bufs[rbuf], nsampl)) < 0)
     {
+      if (err == -EAGAIN) { printf("rEAGAIN\n"); goto read_again; }
+
       printf("[!] snd_pcm_readi(): %d\n", err);
-      break ;
-    }
-
-    if ((err = snd_pcm_writei(odev, bufs[wbuf], nsampl)) != nsampl)
-    {
-      printf("[!] snd_pcm_writei(): %d\n", err);
+      printf("[!] snd_pcm_readi(): %s\n", snd_strerror(err));
       break ;
     }
 
     trans(bufs[tbuf], nsampl);
+
+    snd_pcm_wait(odev, deadline_ms);
+  write_again:
+    if ((err = snd_pcm_writei(odev, bufs[wbuf], nsampl)) != nsampl)
+    {
+      if (err == -EAGAIN) { printf("wEAGAIN\n"); goto write_again; }
+
+      if (err == -EPIPE)
+      {
+	/* an underrun occured, correct and rerun */
+	printf("wEPIPE\n");
+	snd_pcm_recover(odev, err, 1);
+	goto write_again;
+      }
+
+      printf("[!] snd_pcm_writei(): %d\n", err);
+      printf("[!] snd_pcm_writei(): %s\n", snd_strerror(err));
+      break ;
+    }
 
     wbuf = perm3(wbuf);
     tbuf = perm3(tbuf);
     rbuf = perm3(rbuf);
 
     gettimeofday(&tm_now, NULL);
-
     timersub(&tm_now, &tm_ref, &tm_sub);
-    if (timeval_to_ms(&tm_sub) > deadline_ms)
+    elasped_ms = timeval_to_ms(&tm_sub);
+    if (elasped_ms > deadline_ms)
     {
-      printf("unmet deadline (%u) at %u\n", timeval_to_ms(&tm_sub), iter);
+      printf("unmet deadline (%u) at %u\n", elasped_ms, iter);
       break ;
     }
 
-    tm_ref = tm_now;
+    usleep((deadline_ms - elasped_ms) * 1000);
+
+    gettimeofday(&tm_ref, NULL);
+
     ++iter;
   }
 
