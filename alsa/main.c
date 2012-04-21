@@ -239,7 +239,7 @@ static inline unsigned int timeval_to_ms(const struct timeval* tm)
 }
 
 
-/* setup the task scheduling parameters */
+/* setup the process scheduling parameters */
 
 static int setup_sched(void)
 {
@@ -254,15 +254,33 @@ static int setup_sched(void)
 }
 
 
-static void trans(int16_t* buf, unsigned int nsampl)
+/* signal filtering */
+
+typedef struct filter_data
 {
-#if 0
+  
+} filter_data_t;
+
+
+static void filter_init(filter_data_t* data)
+{
+}
+
+static void filter_fini(filter_data_t* data)
+{
+}
+
+static void filter_apply
+(filter_data_t* data, int16_t* buf, unsigned int nsampl)
+{
+#if 0 /* white noise */
   unsigned int i;
   for (i = 0; i < (nsampl * 2); ++i) buf[i] = (int16_t)rand();
-#else
-  /* amplifier effect */
+#elif 1 /* amplifier effect */
   unsigned int i;
   for (i = 0; i < (nsampl * 2); ++i) buf[i] *= 4;
+  /* for (i = 0; i < (nsampl * 2); ++i) buf[i] *= 1; */
+#else /* nop */
 #endif
 }
 
@@ -286,18 +304,24 @@ int main(int ac, char** av)
   unsigned int tbuf = 1;
   unsigned int rbuf = 2;
 
+  unsigned int actual_nsampl = 0;
+
   void* bufs[3] = { NULL, NULL, NULL };
 
   struct timeval tm_ref;
   struct timeval tm_now;
   struct timeval tm_sub;
 
-  unsigned int elasped_ms;
+  unsigned int elpased_ms;
   unsigned int deadline_ms;
 
   unsigned int iter = 0;
 
   int err;
+
+  filter_data_t filter_data;
+
+  filter_init(&filter_data);
 
   if (setup_sched()) goto on_error;
 
@@ -319,9 +343,10 @@ int main(int ac, char** av)
 
   while (1)
   {
+    filter_apply(&filter_data, bufs[tbuf], actual_nsampl);
+
     snd_pcm_wait(idev, deadline_ms);
   read_again:
-    /* if ((err = snd_pcm_readi(idev, bufs[rbuf], nsampl)) != nsampl) */
     if ((err = snd_pcm_readi(idev, bufs[rbuf], nsampl)) < 0)
     {
       if (err == -EAGAIN) { printf("rEAGAIN\n"); goto read_again; }
@@ -330,8 +355,14 @@ int main(int ac, char** av)
       printf("[!] snd_pcm_readi(): %s\n", snd_strerror(err));
       break ;
     }
+    else if (err != nsampl)
+    {
+      printf("read error == %d\n", err);
+      /* goto on_read_error; */
+    }
 
-    trans(bufs[tbuf], nsampl);
+    /* may be smaller than required */
+    actual_nsampl = (unsigned int)err;
 
     snd_pcm_wait(odev, deadline_ms);
   write_again:
@@ -347,9 +378,15 @@ int main(int ac, char** av)
 	goto write_again;
       }
 
+    on_write_error:
       printf("[!] snd_pcm_writei(): %d\n", err);
       printf("[!] snd_pcm_writei(): %s\n", snd_strerror(err));
       break ;
+    }
+    else if (err != nsampl)
+    {
+      printf("write error == %d\n", err);
+      goto on_write_error;
     }
 
     wbuf = perm3(wbuf);
@@ -358,14 +395,14 @@ int main(int ac, char** av)
 
     gettimeofday(&tm_now, NULL);
     timersub(&tm_now, &tm_ref, &tm_sub);
-    elasped_ms = timeval_to_ms(&tm_sub);
-    if (elasped_ms > deadline_ms)
+    elpased_ms = timeval_to_ms(&tm_sub);
+    if (elpased_ms > deadline_ms)
     {
-      printf("unmet deadline (%u) at %u\n", elasped_ms, iter);
+      printf("unmet deadline (%u) at %u\n", elpased_ms, iter);
       break ;
     }
 
-    usleep((deadline_ms - elasped_ms) * 1000);
+    usleep((deadline_ms - elpased_ms) * 1000);
 
     gettimeofday(&tm_ref, NULL);
 
@@ -376,6 +413,7 @@ int main(int ac, char** av)
   if (idev) close_dev(idev);
   if (odev) close_dev(odev);
   free_buf3(bufs, buf_size);
+  filter_fini(&filter_data);
 
   return 0;
 }
