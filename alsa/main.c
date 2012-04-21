@@ -11,6 +11,7 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <alsa/asoundlib.h>
+#include <fftw3.h>
 
 
 /* static configuration */
@@ -258,16 +259,73 @@ static int setup_sched(void)
 
 typedef struct filter_data
 {
+  /* fftw data */
+  fftw_plan plan;
+  double* ibuf;
+  fftw_complex* obuf;
   
 } filter_data_t;
 
 
-static void filter_init(filter_data_t* data)
+static int filter_init(filter_data_t* data, unsigned int nsampl)
 {
+  data->plan = NULL;
+  data->ibuf = NULL;
+  data->obuf = NULL;
+
+  data->ibuf = fftw_malloc(nsampl * sizeof(double));
+  if (data->ibuf == NULL) goto on_error_0;
+
+  data->obuf = fftw_malloc((nsampl / 2 + 1) * sizeof(fftw_complex));
+  if (data->obuf == NULL) goto on_error_1;
+
+  data->plan = fftw_plan_dft_r2c_1d
+    (nsampl, data->ibuf, data->obuf, FFTW_ESTIMATE);
+  if (data->plan == NULL) goto on_error_2;
+
+  return 0;
+
+ on_error_2:
+  fftw_free(data->obuf);
+ on_error_1:
+  fftw_free(data->ibuf);
+ on_error_0:
+  return -1;
 }
 
 static void filter_fini(filter_data_t* data)
 {
+  if (data->plan) fftw_destroy_plan(data->plan);
+  if (data->obuf) fftw_free(data->obuf);
+  if (data->ibuf) fftw_free(data->ibuf);
+}
+
+static void do_power_spectrum
+(filter_data_t* data, const int16_t* buf, unsigned int nsampl)
+{
+  double sum;
+  unsigned int i;
+
+  /* convert int16 dual channel into double single channel */
+  for (i = 0; i < nsampl; ++i)
+    data->ibuf[i] = ((double)buf[i * 2 + 0] + (double)buf[i * 2 + 1]) / 2;
+
+  /* real to complex fast fourier transform */
+  fftw_execute(data->plan);
+
+  /* power spectrum (ie. polar magnitude) */
+  sum = 0;
+  for (i = 0; i < nsampl / 2 + 1; ++i)
+  {
+    const double re = data->obuf[i * 2][0];
+    const double im = data->obuf[i * 2][1];
+    const double p = sqrt(re * re + im * im);
+    data->ibuf[i] = p;
+    sum += p;
+  }
+
+  /* normalize (percent of) */
+  if (sum > 0.00001) for (i = 0; i < nsampl / 2 + 1; ++i) data->ibuf[i] /= sum;
 }
 
 static void filter_apply
@@ -276,10 +334,12 @@ static void filter_apply
 #if 0 /* white noise */
   unsigned int i;
   for (i = 0; i < (nsampl * 2); ++i) buf[i] = (int16_t)rand();
-#elif 1 /* amplifier effect */
+#elif 0 /* amplifier effect */
   unsigned int i;
   for (i = 0; i < (nsampl * 2); ++i) buf[i] *= 4;
   /* for (i = 0; i < (nsampl * 2); ++i) buf[i] *= 1; */
+#elif 1 /* power spectrum */
+  do_power_spectrum(data, buf, nsampl);
 #else /* nop */
 #endif
 }
@@ -321,7 +381,7 @@ int main(int ac, char** av)
 
   filter_data_t filter_data;
 
-  filter_init(&filter_data);
+  if (filter_init(&filter_data, nsampl)) goto  on_error;
 
   if (setup_sched()) goto on_error;
 
@@ -401,6 +461,8 @@ int main(int ac, char** av)
       printf("unmet deadline (%u) at %u\n", elpased_ms, iter);
       break ;
     }
+
+    printf("%u\n", elpased_ms);
 
     usleep((deadline_ms - elpased_ms) * 1000);
 

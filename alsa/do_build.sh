@@ -5,4 +5,4 @@
 # alsa
 ALIB_LFLAGS="-lasound"
 
-gcc -Wall -O3 main.c $ALIB_LFLAGS -lm
+gcc -Wall -O3 main.c $ALIB_LFLAGS -lm -lfftw3
