@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <alsa/asoundlib.h>
 #include <fftw3.h>
+#include "x.h"
 
 
 /* static configuration */
@@ -263,9 +264,62 @@ typedef struct filter_data
   fftw_plan plan;
   double* ibuf;
   fftw_complex* obuf;
-  
+
+  /* user interface */
+  unsigned int w;
+  unsigned int h;
+  const x_color_t* black;
+  const x_color_t* white;
+  x_surface_t* screen;
+
 } filter_data_t;
 
+
+static int ui_init(filter_data_t* data)
+{
+  static const unsigned char white_rgb[] = { 0xff, 0xff, 0xff };
+  static const unsigned char black_rgb[] = { 0x00, 0x00, 0x00 };
+
+  x_initialize();
+
+  data->w = (unsigned int)x_get_width();
+  data->h = (unsigned int)x_get_height();
+
+  data->screen = x_get_screen();
+
+  x_alloc_color(black_rgb, &data->black);
+  x_alloc_color(white_rgb, &data->white);
+
+  return 0;
+}
+
+static void ui_fini(filter_data_t* data)
+{
+  x_free_color(data->white);
+  x_free_color(data->black);
+  x_cleanup();
+}
+
+static void ui_update(filter_data_t* data, unsigned int nsampl)
+{
+  unsigned int i;
+
+  if (SDL_MUSTLOCK(data->screen)) SDL_LockSurface(data->screen);
+
+  x_fill_surface(data->screen, data->black);
+
+  for (i = 0; i < nsampl / 2 + 1; ++i)
+  {
+    const int x = (int)i;
+    int y = data->h - ((int)(data->ibuf[i] * 1000));
+    if (y < 0) y = 0;
+    x_draw_pixel(data->screen, x, y, data->white);
+  }
+
+  SDL_Flip(data->screen);
+
+  if (SDL_MUSTLOCK(data->screen)) SDL_UnlockSurface(data->screen);
+}
 
 static int filter_init(filter_data_t* data, unsigned int nsampl)
 {
@@ -283,6 +337,8 @@ static int filter_init(filter_data_t* data, unsigned int nsampl)
     (nsampl, data->ibuf, data->obuf, FFTW_ESTIMATE);
   if (data->plan == NULL) goto on_error_2;
 
+  ui_init(data);
+
   return 0;
 
  on_error_2:
@@ -298,6 +354,8 @@ static void filter_fini(filter_data_t* data)
   if (data->plan) fftw_destroy_plan(data->plan);
   if (data->obuf) fftw_free(data->obuf);
   if (data->ibuf) fftw_free(data->ibuf);
+
+  ui_fini(data);
 }
 
 static void do_power_spectrum
@@ -317,15 +375,15 @@ static void do_power_spectrum
   sum = 0;
   for (i = 0; i < nsampl / 2 + 1; ++i)
   {
-    const double re = data->obuf[i * 2][0];
-    const double im = data->obuf[i * 2][1];
+    const double re = data->obuf[i][0];
+    const double im = data->obuf[i][1];
     const double p = sqrt(re * re + im * im);
     data->ibuf[i] = p;
     sum += p;
   }
 
   /* normalize (percent of) */
-  if (sum > 0.00001) for (i = 0; i < nsampl / 2 + 1; ++i) data->ibuf[i] /= sum;
+  if (sum > 1) for (i = 0; i < nsampl / 2 + 1; ++i) data->ibuf[i] /= sum;
 }
 
 static void filter_apply
@@ -339,7 +397,11 @@ static void filter_apply
   for (i = 0; i < (nsampl * 2); ++i) buf[i] *= 4;
   /* for (i = 0; i < (nsampl * 2); ++i) buf[i] *= 1; */
 #elif 1 /* power spectrum */
-  do_power_spectrum(data, buf, nsampl);
+  if (nsampl)
+  {
+    do_power_spectrum(data, buf, nsampl);
+    ui_update(data, nsampl);
+  }
 #else /* nop */
 #endif
 }
@@ -377,6 +439,8 @@ int main(int ac, char** av)
 
   unsigned int iter = 0;
 
+  unsigned int i;
+
   int err;
 
   filter_data_t filter_data;
@@ -409,7 +473,15 @@ int main(int ac, char** av)
   read_again:
     if ((err = snd_pcm_readi(idev, bufs[rbuf], nsampl)) < 0)
     {
-      if (err == -EAGAIN) { printf("rEAGAIN\n"); goto read_again; }
+      if (err == -EAGAIN) { goto read_again; }
+
+      if (err == -EPIPE)
+      {
+	/* an underrun occured, correct and rerun */
+	/* printf("rEPIPE\n"); */
+	snd_pcm_recover(idev, err, 1);
+	goto read_again;
+      }
 
       printf("[!] snd_pcm_readi(): %d\n", err);
       printf("[!] snd_pcm_readi(): %s\n", snd_strerror(err));
@@ -417,7 +489,16 @@ int main(int ac, char** av)
     }
     else if (err != nsampl)
     {
-      printf("read error == %d\n", err);
+      /* this is needed since fft plan initialized with nsampl */
+      for (i = err; i < nsampl; ++i)
+      {
+	((int16_t*)bufs[rbuf])[i * 2 + 0] = 0;
+	((int16_t*)bufs[rbuf])[i * 2 + 1] = 0;
+      }
+
+      err = nsampl;
+
+      /* printf("read error == %d\n", err); */
       /* goto on_read_error; */
     }
 
@@ -428,12 +509,12 @@ int main(int ac, char** av)
   write_again:
     if ((err = snd_pcm_writei(odev, bufs[wbuf], nsampl)) != nsampl)
     {
-      if (err == -EAGAIN) { printf("wEAGAIN\n"); goto write_again; }
+      if (err == -EAGAIN) { goto write_again; }
 
       if (err == -EPIPE)
       {
 	/* an underrun occured, correct and rerun */
-	printf("wEPIPE\n");
+	/* printf("wEPIPE\n"); */
 	snd_pcm_recover(odev, err, 1);
 	goto write_again;
       }
@@ -445,7 +526,7 @@ int main(int ac, char** av)
     }
     else if (err != nsampl)
     {
-      printf("write error == %d\n", err);
+      /* printf("write error == %d\n", err); */
       goto on_write_error;
     }
 
@@ -458,13 +539,13 @@ int main(int ac, char** av)
     elpased_ms = timeval_to_ms(&tm_sub);
     if (elpased_ms > deadline_ms)
     {
-      printf("unmet deadline (%u) at %u\n", elpased_ms, iter);
-      break ;
+      /* printf("unmet deadline (%u) at %u\n", elpased_ms, iter); */
+      /* break ; */
     }
-
-    printf("%u\n", elpased_ms);
-
-    usleep((deadline_ms - elpased_ms) * 1000);
+    else
+    {
+      usleep((deadline_ms - elpased_ms) * 1000);
+    }
 
     gettimeofday(&tm_ref, NULL);
 
