@@ -100,6 +100,8 @@ static inline unsigned int tile_percent_to_y
 
 static void tile_clear(ui_tile_t* tile)
 {
+  /* clear using the pixel cache */
+
   unsigned int i;
   unsigned int j;
 
@@ -125,7 +127,6 @@ static void tile_set_band
 
   const unsigned int x = tile_band_to_x(tile, i);
   const unsigned int y = tile_percent_to_y(tile, percent);
-
   draw_pixel(x, y, tile->fg_colors[0]);
   tile->cache.buf[i * 2 + 0] = y;
 }
@@ -266,7 +267,11 @@ void ui_update(const double* ips_bands, unsigned int nband)
   /* update power spectrum tile */
   tile_clear(&ps_tile);
   for (i = 0; i < nband; ++i)
-    tile_set_band(&ps_tile, i, convert_percent(ips_bands[i]));
+  {
+    unsigned int hacked_percent = convert_percent(ips_bands[i]) * 5;
+    if (hacked_percent > 100) hacked_percent = 100;
+    tile_set_band(&ps_tile, i, hacked_percent);
+  }
   ps_tile.cache.is_dirty = 1;
 
 #if 0 /* TODO */

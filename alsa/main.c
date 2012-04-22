@@ -450,8 +450,6 @@ static void filter_apply
     do_power_spectrum(data, buf, nsampl);
     ui_update(data->ibuf, nsampl / 2 + 1);
   }
-  unsigned int i;
-  for (i = 0; i < (nsampl * 2); ++i) buf[i] *= 4;
 #else /* nop */
 #endif
 }
