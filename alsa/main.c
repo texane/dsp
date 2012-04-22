@@ -31,6 +31,7 @@
 #define CONFIG_FSAMPL 44100
 #define CONFIG_FBAND 50
 #define CONFIG_NCHAN 2
+#define CONFIG_TIMING_CONTROL 0
 
 
 /* buffer allocation */
@@ -530,11 +531,16 @@ int main(int ac, char** av)
 
   void* bufs[3] = { NULL, NULL, NULL };
 
+#if CONFIG_TIMING_CONTROL
+
   struct timeval tm_ref;
   struct timeval tm_now;
   struct timeval tm_sub;
 
   unsigned int elpased_ms;
+
+#endif /* CONFIG_TIMING_CONTROL */
+
   unsigned int deadline_ms;
 
   unsigned int iter = 0;
@@ -583,8 +589,10 @@ int main(int ac, char** av)
   snd_pcm_nonblock(odev, 1);
 #endif
 
+#if CONFIG_TIMING_CONTROL
   /* bootstrap timer */
   gettimeofday(&tm_ref, NULL);
+#endif /* CONFIG_TIMING_CONTROL */
 
   while (1)
   {
@@ -618,7 +626,7 @@ int main(int ac, char** av)
     tbuf = perm3(tbuf);
     rbuf = perm3(rbuf);
 
-    /* timing control */
+#if CONFIG_TIMING_CONTROL
 
     gettimeofday(&tm_now, NULL);
     timersub(&tm_now, &tm_ref, &tm_sub);
@@ -628,12 +636,14 @@ int main(int ac, char** av)
       /* printf("unmet deadline (%u) at %u\n", elpased_ms, iter); */
       /* break ; */
     }
-    else
+    else if (deadline_ms > elpased_ms)
     {
       usleep((deadline_ms - elpased_ms) * 1000);
     }
 
     gettimeofday(&tm_ref, NULL);
+
+#endif /* CONFIG_TIMING_CONTROL */
 
     ++iter;
   }
