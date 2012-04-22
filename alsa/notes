@@ -12,3 +12,5 @@ if requested timeout elapses
 
 how to start an asynchronous read / write transfer and test for completion.
 This should be the role of nonblocking mode, but currently used to block
+
+timer should rely on instruction count
