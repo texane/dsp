@@ -2,6 +2,9 @@
 #include "x.h"
 
 
+#define CONFIG_USE_IMPULSE 1
+
+
 /* a tile is a subwindow in the main window, with a frame
    and a drawing area. the frame is not drawable. a pixel
    cache is maintained to accelerate the tile clearing.
@@ -81,6 +84,13 @@ static inline void draw_line
   x_draw_line(screen, (int)x0, (int)new_y0, (int)x1, (int)new_y1, c);
 }
 
+__attribute__((unused)) static void draw_impulse
+(unsigned int x, unsigned int y0, unsigned int y1, const x_color_t* c)
+{
+  for (; y0 <= y1; ++y0)
+    x_draw_pixel(screen, x, screen_height - y0 - 1, c);  
+}
+
 
 /* tiling routines */
 
@@ -113,7 +123,11 @@ static void tile_clear(ui_tile_t* tile)
     {
       const unsigned int x = tile_band_to_x(tile, i);
       const unsigned int y = tile->cache.buf[i * 2 + j];
+#if CONFIG_USE_IMPULSE
+      draw_impulse(x, tile->draw.y, y, tile->bg_color);
+#else
       draw_pixel(x, y, tile->bg_color);
+#endif
     }
   }
 
@@ -127,8 +141,14 @@ static void tile_set_band
 
   const unsigned int x = tile_band_to_x(tile, i);
   const unsigned int y = tile_percent_to_y(tile, percent);
-  draw_pixel(x, y, tile->fg_colors[0]);
+
   tile->cache.buf[i * 2 + 0] = y;
+
+#if CONFIG_USE_IMPULSE
+  draw_impulse(x, tile->draw.y, y, tile->fg_colors[0]);
+#else
+  draw_pixel(x, y, tile->fg_colors[0]);
+#endif
 }
 
 static void tile_draw_frame
@@ -183,13 +203,36 @@ int ui_init(unsigned int nband, unsigned int fband)
   static const unsigned char red_rgb[] = { 0xff, 0x00, 0x00 };
   static const unsigned char blue_rgb[] = { 0x00, 0x00, 0xff };
 
+  unsigned int hscale;
+  unsigned int vscale;
+
   unsigned int i;
 
-  x_initialize();
+  /* compute hscale before initliazing main window */
+  screen_width = 500;
+  screen_height = 500;
+
+#if 0 /* unused, scale always set to 1 */
+  hscale = (screen_width - TILE_FRAME_DIM) / nband;
+  if (hscale == 0)
+#endif
+  {
+    hscale = 1;
+    screen_width = (hscale * nband) + TILE_FRAME_DIM;
+  }
+
+#if 0 /* unused, scale always set to 1 */
+  vscale = (screen_height / 2 - TILE_FRAME_DIM) / 100;
+  if (vscale == 0)
+#endif
+  {
+    vscale = 2;
+    screen_height = 2 * (vscale * 100 + TILE_FRAME_DIM);
+  }
+
+  if (x_initialize(screen_width, screen_height)) return -1;
 
   screen = x_get_screen();
-  screen_width = (unsigned int)x_get_width();
-  screen_height = (unsigned int)x_get_height();
 
   x_alloc_color(black_rgb, &black_color);
   x_alloc_color(white_rgb, &white_color);
@@ -203,12 +246,12 @@ int ui_init(unsigned int nband, unsigned int fband)
   ps_tile.screen.x = 0;
   ps_tile.screen.y = 0;
   ps_tile.screen.w = screen_width;
-  ps_tile.screen.h = screen_height;
+  ps_tile.screen.h = screen_height / 2;
 
   ps_tile.draw.x = TILE_FRAME_DIM;
   ps_tile.draw.y = TILE_FRAME_DIM;
-  ps_tile.draw.hscale = (screen_width - TILE_FRAME_DIM) / nband;
-  ps_tile.draw.vscale = (screen_height / 2 - TILE_FRAME_DIM) / 100;
+  ps_tile.draw.hscale = hscale;
+  ps_tile.draw.vscale = vscale;
 
   ps_tile.frame_color = white_color;
   ps_tile.bg_color = black_color;
@@ -269,6 +312,7 @@ void ui_update(const double* ips_bands, unsigned int nband)
   for (i = 0; i < nband; ++i)
   {
     unsigned int hacked_percent = convert_percent(ips_bands[i]) * 5;
+    if (hacked_percent == 0) continue ;
     if (hacked_percent > 100) hacked_percent = 100;
     tile_set_band(&ps_tile, i, hacked_percent);
   }

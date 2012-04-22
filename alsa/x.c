@@ -48,14 +48,12 @@ static Uint32 on_timer(Uint32 interval, void* param)
 
 
 
-int x_initialize(void)
+int x_initialize(unsigned int w, unsigned int h)
 {
   if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_DOUBLEBUF) < 0)
     return -1;
 
-#define X_WIDTH 800
-#define X_HEIGHT 800
-  g_screen = SDL_SetVideoMode(X_WIDTH, X_HEIGHT, 16, SDL_SWSURFACE);
+  g_screen = SDL_SetVideoMode(w, h, 16, SDL_SWSURFACE);
   if (g_screen == NULL)
     {
       SDL_Quit();
@@ -491,18 +489,6 @@ void x_draw_disk
 int x_event_get_type(const struct x_event* event)
 {
   return event->type;
-}
-
-
-int x_get_width(void)
-{
-  return X_WIDTH;
-}
-
-
-int x_get_height(void)
-{
-  return X_HEIGHT;
 }
 
 

@@ -29,9 +29,10 @@
 /* static configuration */
 
 #define CONFIG_FSAMPL 44100
-#define CONFIG_FBAND 50
+#define CONFIG_FBAND 25
 #define CONFIG_NCHAN 2
 #define CONFIG_TIMING_CONTROL 0
+#define CONFIG_ENABLE_PLAYBACK 0
 
 
 /* buffer allocation */
@@ -165,7 +166,7 @@ static int open_capture_dev
   int err;
 
   /* err = snd_pcm_open(pcm, name, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK); */
-err = snd_pcm_open(pcm, name, SND_PCM_STREAM_CAPTURE, 0);
+  err = snd_pcm_open(pcm, name, SND_PCM_STREAM_CAPTURE, 0);
   if (err < 0)
   {
     printf("[!] snd_pcm_open(capture): %s\n", snd_strerror(err));
@@ -375,6 +376,8 @@ static int filter_init
   data->ibuf = NULL;
   data->obuf = NULL;
 
+  if (ui_init(nsampl / 2 + 1, fband)) goto on_error_0;
+
   data->ibuf = fftw_malloc(nsampl * sizeof(double));
   if (data->ibuf == NULL) goto on_error_0;
 
@@ -384,8 +387,6 @@ static int filter_init
   data->plan = fftw_plan_dft_r2c_1d
     (nsampl, data->ibuf, data->obuf, FFTW_ESTIMATE);
   if (data->plan == NULL) goto on_error_2;
-
-  ui_init(nsampl / 2 + 1, fband);
 
   return 0;
 
@@ -462,7 +463,10 @@ int main(int ac, char** av)
   const char* const dev_name = ac > 1 ? av[1] : "";
 
   snd_pcm_t* idev = NULL;
+
+#if CONFIG_ENABLE_PLAYBACK
   snd_pcm_t* odev = NULL;
+#endif
 
   const unsigned int fband = CONFIG_FBAND;
   const unsigned int nsampl = get_nsampl();
@@ -506,7 +510,10 @@ int main(int ac, char** av)
   if (setup_sched()) goto on_error;
 
   if (open_capture_dev(&idev, dev_name, nsampl)) goto on_error;
+
+#if CONFIG_ENABLE_PLAYBACK
   if (open_playback_dev(&odev, dev_name, nsampl)) goto on_error;
+#endif
 
   if (alloc_buf3(bufs, buf_size)) goto on_error;
 
@@ -516,7 +523,10 @@ int main(int ac, char** av)
   printf("deadline: %u\n", deadline_ms);
 
   if (start_dev(idev)) goto on_error;
+
+#if CONFIG_ENABLE_PLAYBACK
   if (start_dev(odev)) goto on_error;
+#endif
 
 #if 0
   snd_pcm_state_t state;
@@ -548,8 +558,10 @@ int main(int ac, char** av)
 
     /* write playback device */
 
+#if CONFIG_ENABLE_PLAYBACK
     err = (int)write_dev(odev, bufs[wbuf], nsampl, deadline_ms);
     if (err == -1) break ;
+#endif
 
     /* read capture device */
 
@@ -598,7 +610,9 @@ int main(int ac, char** av)
 
  on_error:
   if (idev) close_dev(idev);
+#if CONFIG_ENABLE_PLAYBACK
   if (odev) close_dev(odev);
+#endif
   free_buf3(bufs, buf_size);
   filter_fini(&filter_data);
 

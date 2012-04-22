@@ -24,7 +24,7 @@ typedef SDL_Surface x_surface_t;
 #define X_EVENT_KDOWN_SPACE 3
 
 
-int x_initialize(void);
+int x_initialize(unsigned int, unsigned int);
 void x_cleanup(void);
 void x_loop(int (*)(const struct x_event*, void*), void*);
 int x_alloc_color(const unsigned char*, const x_color_t**);
@@ -35,8 +35,6 @@ void x_draw_line(x_surface_t*, int, int, int, int, const x_color_t*);
 void x_draw_circle(x_surface_t*, int, int, int, const x_color_t*);
 void x_draw_disk(x_surface_t*, int, int, int, const x_color_t*);
 int x_event_get_type(const struct x_event*);
-int x_get_width(void);
-int x_get_height(void);
 const x_color_t* x_get_transparency_color(void);
 x_surface_t* x_create_surface(int, int);
 void x_free_surface(x_surface_t*);
