@@ -29,10 +29,10 @@
 /* static configuration */
 
 #define CONFIG_FSAMPL 44100
-#define CONFIG_FBAND 25
+#define CONFIG_FBAND 50
 #define CONFIG_NCHAN 2
 #define CONFIG_TIMING_CONTROL 0
-#define CONFIG_ENABLE_PLAYBACK 0
+#define CONFIG_ENABLE_PLAYBACK 1
 
 
 /* buffer allocation */
@@ -153,6 +153,9 @@ static int setup_common_dev(snd_pcm_t* pcm, unsigned int nsampl)
     snd_pcm_hw_params_get_period_size(parms, &frames, &dir);
     snd_pcm_hw_params_get_period_time(parms, &us, &dir);
     printf("period: %d %u\n", (int)frames, us);
+
+    snd_pcm_hw_params_get_rate_min(parms, &us, &dir);
+    printf("min_rate: %u\n", us);
   }
 #endif /* info */
 
@@ -367,7 +370,30 @@ typedef struct filter_data
   double* ibuf;
   fftw_complex* obuf;
 
+  /* fir data */
+  double* fir_buf;
+
 } filter_data_t;
+
+static const double fir_coeffs[] =
+{
+  -0.131625603115805,
+  0.103820148451119,
+  0.096541374482813,
+  0.102280926834003,
+  0.113689768997426,
+  0.125850624234278,
+  0.135740574367069,
+  0.141133806318268,
+  0.141133806318268,
+  0.135740574367069,
+  0.125850624234278,
+  0.113689768997426,
+  0.102280926834003,
+  0.096541374482813,
+  0.103820148451119,
+  -0.131625603115805
+};
 
 static int filter_init
 (filter_data_t* data, unsigned int nsampl, unsigned int fband)
@@ -375,6 +401,7 @@ static int filter_init
   data->plan = NULL;
   data->ibuf = NULL;
   data->obuf = NULL;
+  data->fir_buf = NULL;
 
   if (ui_init(nsampl / 2 + 1, fband)) goto on_error_0;
 
@@ -387,6 +414,9 @@ static int filter_init
   data->plan = fftw_plan_dft_r2c_1d
     (nsampl, data->ibuf, data->obuf, FFTW_ESTIMATE);
   if (data->plan == NULL) goto on_error_2;
+
+  const unsigned int nh = sizeof(fir_coeffs) / sizeof(fir_coeffs[0]);
+  data->fir_buf = malloc((nsampl + nh) * sizeof(double));
 
   return 0;
 
@@ -404,6 +434,8 @@ static void filter_fini(filter_data_t* data)
   if (data->obuf) fftw_free(data->obuf);
   if (data->ibuf) fftw_free(data->ibuf);
 
+  if (data->fir_buf) free(data->fir_buf);
+
   ui_fini();
 }
 
@@ -420,9 +452,12 @@ static void do_power_spectrum
   /* real to complex fast fourier transform */
   fftw_execute(data->plan);
 
+  /* TODO: normalize */
+
   /* power spectrum (ie. polar magnitude) */
   sum = 0;
-  for (i = 0; i < nsampl / 2 + 1; ++i)
+  data->ibuf[0] = 0;
+  for (i = 1; i < nsampl / 2 + 1; ++i)
   {
     const double re = data->obuf[i][0];
     const double im = data->obuf[i][1];
@@ -435,6 +470,52 @@ static void do_power_spectrum
   if (sum > 1) for (i = 0; i < nsampl / 2 + 1; ++i) data->ibuf[i] /= sum;
 }
 
+static void convolve
+(
+ double* xx, unsigned int nxx,
+ const double* x, unsigned int nx,
+ const double* h, unsigned int nh
+)
+{
+  int i;
+  int j;
+
+  for (i = 0; i < (int)nxx; ++i)
+  {
+    xx[i] = 0;
+
+    for (j = 0; j < (int)nh; ++j)
+    {
+      if (i - j < 0) continue ;
+      if (i - j >= nx) continue ;
+
+      xx[i] += h[j] * x[i - j];
+    }
+  }
+}
+
+static void do_fir(filter_data_t* data, int16_t* buf, unsigned int nsampl)
+{
+  static const unsigned int nh = sizeof(fir_coeffs) / sizeof(fir_coeffs[0]);
+
+  unsigned int i;
+
+  /* convert int16 dual channel into double single channel */
+  for (i = 0; i < nsampl; ++i)
+    data->ibuf[i] = ((double)buf[i * 2 + 0] + (double)buf[i * 2 + 1]) / 2;
+
+  convolve(data->fir_buf, nsampl + nh, data->ibuf, nsampl, fir_coeffs, nh);
+
+  /* convert back to int16_t */
+  for (i = 0; i < nsampl; ++i)
+  {
+    /* FIXME: double to int16 conversion, not a cast */
+    const int16_t val = (int16_t)data->fir_buf[i];
+    buf[i * 2 + 0] = val;
+    buf[i * 2 + 1] = val;
+  }
+}
+
 static void filter_apply
 (filter_data_t* data, int16_t* buf, unsigned int nsampl)
 {
@@ -445,11 +526,20 @@ static void filter_apply
   unsigned int i;
   for (i = 0; i < (nsampl * 2); ++i) buf[i] *= 4;
   /* for (i = 0; i < (nsampl * 2); ++i) buf[i] *= 1; */
-#elif 1 /* power spectrum */
+#elif 1 /* fir */
   if (nsampl)
   {
+    ui_update_begin();
+
     do_power_spectrum(data, buf, nsampl);
-    ui_update(data->ibuf, nsampl / 2 + 1);
+    ui_update_ips(data->ibuf, nsampl / 2 + 1);
+
+    do_fir(data, buf, nsampl);
+
+    do_power_spectrum(data, buf, nsampl);
+    ui_update_ops(data->ibuf, nsampl / 2 + 1);
+
+    ui_update_end();
   }
 #else /* nop */
 #endif

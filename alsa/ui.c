@@ -3,6 +3,8 @@
 
 
 #define CONFIG_USE_IMPULSE 1
+#define CONFIG_MIN_FREQ 0
+#define CONFIG_MAX_FREQ 8000
 
 
 /* a tile is a subwindow in the main window, with a frame
@@ -62,6 +64,11 @@ static const x_color_t* black_color = NULL;
 static const x_color_t* white_color = NULL;
 static const x_color_t* red_color = NULL;
 static const x_color_t* blue_color = NULL;
+
+/* power spectrum frequencies focused on */
+static unsigned int ps_min_band = 0;
+static unsigned int ps_max_band = 0;
+static unsigned int ps_nband = 0;
 
 
 /* drawing routines. y always inverted. */
@@ -135,19 +142,25 @@ static void tile_clear(ui_tile_t* tile)
 }
 
 static void tile_set_band
-(ui_tile_t* tile, unsigned int i, unsigned int percent)
+(
+ ui_tile_t* tile,
+ unsigned int i, unsigned int percent,
+ unsigned int k,
+ const x_color_t* c
+)
 {
   /* set the band i to value val */
+  /* k the cache index */
 
   const unsigned int x = tile_band_to_x(tile, i);
   const unsigned int y = tile_percent_to_y(tile, percent);
 
-  tile->cache.buf[i * 2 + 0] = y;
+  tile->cache.buf[i * 2 + k] = y;
 
 #if CONFIG_USE_IMPULSE
-  draw_impulse(x, tile->draw.y, y, tile->fg_colors[0]);
+  draw_impulse(x, tile->draw.y, y, c);
 #else
-  draw_pixel(x, y, tile->fg_colors[0]);
+  draw_pixel(x, y, c);
 #endif
 }
 
@@ -194,6 +207,15 @@ static void tile_draw_frame
 }
 
 
+#if defined(CONFIG_MIN_FREQ)
+/* convert frequency to band index */
+static inline unsigned int freq_to_band(unsigned int freq, unsigned int fband)
+{
+  return freq / fband;
+}
+#endif /* CONFIG_MIN_FREQ */
+
+
 /* exported */
 
 int ui_init(unsigned int nband, unsigned int fband)
@@ -208,7 +230,19 @@ int ui_init(unsigned int nband, unsigned int fband)
 
   unsigned int i;
 
-  /* compute hscale before initliazing main window */
+#if defined(CONFIG_MIN_FREQ)
+  ps_min_band = freq_to_band(CONFIG_MIN_FREQ, fband);
+  ps_max_band = 1 + freq_to_band(CONFIG_MAX_FREQ, fband);
+#else
+  ps_min_band = 0;
+  ps_max_band = nband;
+#endif
+  ps_nband = ps_max_band - ps_min_band;
+
+  /* force nband to ps_nband */
+  nband = ps_nband;
+
+  /* compute scalings before initliazing main window */
   screen_width = 500;
   screen_height = 500;
 
@@ -217,7 +251,7 @@ int ui_init(unsigned int nband, unsigned int fband)
   if (hscale == 0)
 #endif
   {
-    hscale = 1;
+    hscale = 4;
     screen_width = (hscale * nband) + TILE_FRAME_DIM;
   }
 
@@ -275,7 +309,7 @@ int ui_init(unsigned int nband, unsigned int fband)
 #endif
 
   /* draw split line */
-  i = screen_height / 2;
+  i = screen_height / 2 + 2;
   draw_line(0, i + 0, screen_width - 1, i + 0, white_color);
   draw_line(0, i + 1, screen_width - 1, i + 1, white_color);
 
@@ -297,9 +331,12 @@ static inline unsigned int convert_percent(double x)
   return (unsigned int)(x * 100);
 }
 
-void ui_update(const double* ips_bands, unsigned int nband)
+void update_common_ps
+(const double* ps_bands, unsigned int nband, unsigned int k)
 {
-  /* ips_bands the input power spectrum bands, in percent */
+  /* k the pixel cache index */
+
+  const x_color_t* const c = ps_tile.fg_colors[k];
 
   unsigned int i;
 
@@ -308,22 +345,49 @@ void ui_update(const double* ips_bands, unsigned int nband)
   if (must_lock) SDL_LockSurface(screen);
 
   /* update power spectrum tile */
-  tile_clear(&ps_tile);
-  for (i = 0; i < nband; ++i)
+  for (i = 0; i < ps_nband; ++i)
   {
-    unsigned int hacked_percent = convert_percent(ips_bands[i]) * 5;
+    const unsigned int j = ps_min_band + i;
+    unsigned int hacked_percent = convert_percent(ps_bands[j]);
     if (hacked_percent == 0) continue ;
     if (hacked_percent > 100) hacked_percent = 100;
-    tile_set_band(&ps_tile, i, hacked_percent);
+    tile_set_band(&ps_tile, i, hacked_percent, k, c);
   }
   ps_tile.cache.is_dirty = 1;
 
+  if (must_lock) SDL_UnlockSurface(screen);
+}
+
+void ui_update_ips(const double* ips_bands, unsigned int nband)
+{
+  /* ips_bands the input power spectrum bands, in percent */
+  update_common_ps(ips_bands, nband, 0);
+}
+
+void ui_update_ops(const double* ops_bands, unsigned int nband)
+{
+  /* ops_bands the output power spectrum bands, in percent */
+  update_common_ps(ops_bands, nband, 1);
+}
+
+void ui_update_begin(void)
+{
+  const int must_lock = SDL_MUSTLOCK(screen);
+
+  if (must_lock) SDL_LockSurface(screen);
+  tile_clear(&ps_tile);
 #if 0 /* TODO */
   /* update frequency response tile */
   tile_clear(&fr_tile);
 #endif
+  if (must_lock) SDL_UnlockSurface(screen);
+}
 
+void ui_update_end(void)
+{
+  const int must_lock = SDL_MUSTLOCK(screen);
+
+  if (must_lock) SDL_LockSurface(screen);
   SDL_Flip(screen);
-
   if (must_lock) SDL_UnlockSurface(screen);
 }

@@ -7,6 +7,8 @@ at the end of the iteration, check for DMA transfers done OR deadline elapsed.
 
 [ fixme ]
 
+howto set sampling frequency below 44khz -> around 16khz
+
 dev_{write,read}_all: implement function that io all samples and fail
 if requested timeout elapses
 
