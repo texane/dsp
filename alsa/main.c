@@ -247,11 +247,11 @@ static unsigned int write_dev
       /* an underrun occured, correct and rerun */
       /* printf("wEPIPE\n"); */
       snd_pcm_recover(pcm, err, 1);
-      goto write_again;
+      /* goto write_again; */
+      return nsampl;
     }
 
-    printf("[!] snd_pcm_writei(): %d\n", err);
-    printf("[!] snd_pcm_writei(): %s\n", snd_strerror(err));
+    printf("[!] snd_pcm_writei(): %d, %s\n", err, snd_strerror(err));
     return -1;
   }
 
@@ -278,8 +278,7 @@ static unsigned int read_dev
       goto read_again;
     }
 
-    printf("[!] snd_pcm_readi(): %d\n", err);
-    printf("[!] snd_pcm_readi(): %s\n", snd_strerror(err));
+    printf("[!] snd_pcm_readi(): %d %s\n", err, snd_strerror(err));
     return -1;
   }
 
