@@ -15,6 +15,7 @@ typedef struct tonegen
 
   /* current angle, angular step */
   double w[32];
+  double a[32];
   double dw[32];
 
 } tonegen_t;
@@ -24,14 +25,16 @@ static void tonegen_init(tonegen_t* gen)
   gen->n = 0;
 }
 
-static void tonegen_add(tonegen_t* gen, double freq, double fsampl)
+static void tonegen_add(tonegen_t* gen, double freq, double fsampl, double a)
 {
   /* freq the tone frequency */
   /* fsampl the sampling frequency */
+  /* a the amplitude */
 
   const unsigned int i = gen->n++;
 
   gen->w[i] = 0.0;
+  gen->a[i] = a;
   gen->dw[i] = (2.0 * M_PI * freq) / fsampl;
 }
 
@@ -47,7 +50,7 @@ static void tonegen_read(tonegen_t* gen, fftw_complex* buf, unsigned int n)
 
     for (j = 0; j < gen->n; ++j)
     {
-      buf[i][0] += sin(gen->w[j]);
+      buf[i][0] += gen->a[j] * sin(gen->w[j]);
       gen->w[j] += gen->dw[j];
     }
   }
@@ -138,8 +141,8 @@ static void do_complex_dft(void)
   unsigned int i;
 
   tonegen_init(&gen);
-  tonegen_add(&gen, 600, fsampl);
-  tonegen_add(&gen, 6000, fsampl);
+  tonegen_add(&gen, 600, fsampl, 1);
+  tonegen_add(&gen, 6000, fsampl, 2);
   tonegen_read(&gen, x, nx);
 
   dft(x, nx, y);
