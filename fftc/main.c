@@ -106,7 +106,12 @@ static void ps(fftw_complex* x, unsigned int nx, double* xx)
   sum = 0;
   for (i = 0; i < nxx; ++i)
   {
-    xx[i] = fabs(x[i][0] + x[i][1]);
+    /* dsp guide, steven w. smith, 573
+       rectangular notation is:
+       x[i] = re(X[i]) * cos(w) - im(X[i]) * sin(w);
+     */
+
+    xx[i] = x[i][0] - x[i][1];
     sum += xx[i];
   }
 
@@ -141,8 +146,9 @@ static void do_complex_dft(void)
   unsigned int i;
 
   tonegen_init(&gen);
-  tonegen_add(&gen, 600, fsampl, 1);
-  tonegen_add(&gen, 6000, fsampl, 2);
+  tonegen_add(&gen, 600, fsampl, 10);
+  tonegen_add(&gen, 6000, fsampl, 5);
+  tonegen_add(&gen, 18000, fsampl, 2.5);
   tonegen_read(&gen, x, nx);
 
   dft(x, nx, y);
