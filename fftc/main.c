@@ -92,9 +92,10 @@ static void idft(fftw_complex* in, unsigned int nx, fftw_complex* out)
   fftw_destroy_plan(plan);
 }
 
-static void ps(fftw_complex* x, unsigned int nx, double* xx)
+__attribute__((unused))
+static void ps_percent(fftw_complex* x, unsigned int nx, double* xx)
 {
-  /* power spectrum */
+  /* power spectrum (percent of total amplitudes) */
 
   /* x the fourier transform */
 
@@ -111,6 +112,10 @@ static void ps(fftw_complex* x, unsigned int nx, double* xx)
        x[i] = re(X[i]) * cos(w) - im(X[i]) * sin(w);
      */
 
+    /* do not care about the scaling factor since ampls are
+       computed to be a percentage of the total spectrum
+     */
+
     xx[i] = x[i][0] - x[i][1];
     sum += xx[i];
   }
@@ -118,6 +123,29 @@ static void ps(fftw_complex* x, unsigned int nx, double* xx)
   if (sum >= 0.0001)
   {
     for (i = 0; i < nxx; ++i) xx[i] /= sum;
+  }
+}
+
+__attribute__((unused))
+static void ps_abs(fftw_complex* x, unsigned int nx, double* xx)
+{
+  /* power spectrum (absolute amplitudes) */
+
+  /* x the fourier transform */
+
+  const unsigned int nxx = nx / 2;
+
+  unsigned int i;
+
+  for (i = 0; i < nxx; ++i)
+  {
+    /* no scaling factor applied by FFTW (refer to: what FFTW really computes)
+       according dsp guide, p.570, a factor of nx is applied on the DFT coeffs.
+       thus, we must divide by nx. however, we work only on the positive
+       frequency side of the spectrum since negative side is symetric. thus,
+       the actual scaling factor is (2 / nx).
+     */
+    xx[i] = (2 * (x[i][0] - x[i][1])) / (double)nx;
   }
 }
 
@@ -153,7 +181,7 @@ static void do_complex_dft(void)
 
   dft(x, nx, y);
   idft(y, nx, z);
-  ps(y, nx, w);
+  ps_abs(y, nx, w);
 
 #if 0
   for (i = 0; i < nx; ++i)
