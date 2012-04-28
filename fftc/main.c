@@ -77,7 +77,7 @@ static inline double nsampl_to_fband(unsigned int nsampl, double fsampl)
 
 static void dft(fftw_complex* in, unsigned int nx, fftw_complex* out)
 {
-  fftw_plan plan = fftw_plan_dft_1d(nx, in, out, FFTW_BACKWARD, FFTW_ESTIMATE);
+  fftw_plan plan = fftw_plan_dft_1d(nx, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
   fftw_execute(plan);
   fftw_destroy_plan(plan);
 }
@@ -100,16 +100,11 @@ static void ps(fftw_complex* x, unsigned int nx, double* xx)
   unsigned int i;
   double sum;
 
-  for (i = 0; i < nxx; ++i) xx[i] = x[i][0];
-
   sum = 0;
-  /* i = nxx = nx / 2 */
-  for (; i < nx; ++i)
+  for (i = 0; i < nxx; ++i)
   {
-    /* nxx - (i - nx / 2 - 1) */
-    const unsigned int j = 2 * nxx - i + 1;
-    xx[j] += x[i][0];
-    sum += fabs(xx[j]);
+    xx[i] = fabs(x[i][0] + x[i][1]);
+    sum += xx[i];
   }
 
   if (sum >= 0.0001)
@@ -122,9 +117,13 @@ static void do_complex_dft(void)
 {
   static const double fsampl = 48000;
 
-  double fband = 10;
-  const unsigned int nbands = 1 + fsampl / (2 * fband);
-  fband = fsampl / (2 * (double)nbands);
+  double fband = 100;
+  unsigned int nbands = fsampl / (2 * fband);
+  if (nbands & 1)
+  {
+    ++nbands;
+    fband = fsampl / (2 * (double)nbands);
+  }
 
   const unsigned int nx = nbands * 2;
   const unsigned int nw = nbands;
@@ -152,6 +151,11 @@ static void do_complex_dft(void)
   {
     const double zz = z[i][0] / (double)nx;
     printf("%u %lf %lf %lf %lf\n", i, x[i][0], zz, y[i][0], y[i][1]);
+  }
+#elif 0
+  for (i = 0; i < nx; ++i)
+  {
+    printf("%u %lf\n", i, x[i][0]);
   }
 #else
   for (i = 0; i < nw; ++i)
