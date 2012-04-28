@@ -4,7 +4,7 @@
 
 #define CONFIG_USE_IMPULSE 1
 #define CONFIG_MIN_FREQ 0
-#define CONFIG_MAX_FREQ 8000
+#define CONFIG_MAX_FREQ 4000
 
 
 /* a tile is a subwindow in the main window, with a frame
@@ -260,7 +260,7 @@ int ui_init(unsigned int nband, unsigned int fband)
   if (vscale == 0)
 #endif
   {
-    vscale = 2;
+    vscale = 1;
     screen_height = 2 * (vscale * 100 + TILE_FRAME_DIM);
   }
 
