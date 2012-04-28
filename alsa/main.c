@@ -1,5 +1,11 @@
 /* reference: http://equalarea.com/paul/alsa-audio.html */
 
+/* alsa plugings references
+   http://www.volkerschatz.com/noise/alsa.html
+   http://www.alsa-project.org/alsa-doc/alsa-lib/pcm_plugins.html
+   http://www.mail-archive.com/alsa-user@lists.sourceforge.net/msg21396.html
+ */
+
 /* reference: http://www.linuxjournal.com/article/6735
    an audio card has an assoicated large circular buffer.
    tranferring all data in one would result in latency,
@@ -11,6 +17,9 @@
    device. ALSA calls the 2 states XRUN.
  */
 
+/* tone generation using ecasound
+   ecasound -i tone,sine,400,2000 -o /tmp/tone.wav
+ */
 
 #include <stdio.h>
 #include <stdint.h>
@@ -154,6 +163,8 @@ static int setup_common_dev(snd_pcm_t* pcm, unsigned int nsampl)
     snd_pcm_hw_params_get_period_time(parms, &us, &dir);
     printf("period: %d %u\n", (int)frames, us);
 
+    us = 0;
+    dir = 1;
     snd_pcm_hw_params_get_rate_min(parms, &us, &dir);
     printf("min_rate: %u\n", us);
   }
@@ -169,7 +180,8 @@ static int open_capture_dev
   int err;
 
   /* err = snd_pcm_open(pcm, name, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK); */
-  err = snd_pcm_open(pcm, name, SND_PCM_STREAM_CAPTURE, 0);
+  /* err = snd_pcm_open(pcm, name, SND_PCM_STREAM_CAPTURE, 0); */
+  err = snd_pcm_open(pcm, "pcm.infile", SND_PCM_STREAM_CAPTURE, 0);
   if (err < 0)
   {
     printf("[!] snd_pcm_open(capture): %s\n", snd_strerror(err));
@@ -367,7 +379,7 @@ typedef struct filter_data
 {
   /* fftw data */
   fftw_plan plan;
-  double* ibuf;
+  fftw_complex* ibuf;
   fftw_complex* obuf;
 
   /* fir data */
@@ -403,16 +415,16 @@ static int filter_init
   data->obuf = NULL;
   data->fir_buf = NULL;
 
-  if (ui_init(nsampl / 2 + 1, fband)) goto on_error_0;
+  if (ui_init(nsampl / 2, fband)) goto on_error_0;
 
-  data->ibuf = fftw_malloc(nsampl * sizeof(double));
+  data->ibuf = fftw_malloc(nsampl * sizeof(fftw_complex));
   if (data->ibuf == NULL) goto on_error_0;
 
-  data->obuf = fftw_malloc((nsampl / 2 + 1) * sizeof(fftw_complex));
+  data->obuf = fftw_malloc(nsampl * sizeof(fftw_complex));
   if (data->obuf == NULL) goto on_error_1;
 
-  data->plan = fftw_plan_dft_r2c_1d
-    (nsampl, data->ibuf, data->obuf, FFTW_ESTIMATE);
+  data->plan = fftw_plan_dft_1d
+    (nsampl, data->ibuf, data->obuf, FFTW_FORWARD, FFTW_ESTIMATE);
   if (data->plan == NULL) goto on_error_2;
 
   const unsigned int nh = sizeof(fir_coeffs) / sizeof(fir_coeffs[0]);
@@ -442,32 +454,42 @@ static void filter_fini(filter_data_t* data)
 static void do_power_spectrum
 (filter_data_t* data, const int16_t* buf, unsigned int nsampl)
 {
+  /* power spectrum a stored in casted data->ibuf */
+  double* const x = (double*)data->ibuf;
+  const unsigned int nx = nsampl / 2;
+
   double sum;
   unsigned int i;
 
   /* convert int16 dual channel into double single channel */
   for (i = 0; i < nsampl; ++i)
-    data->ibuf[i] = ((double)buf[i * 2 + 0] + (double)buf[i * 2 + 1]) / 2;
+  {
+    data->ibuf[i][0] = ((double)buf[i * 2 + 0] + (double)buf[i * 2 + 1]) / 2;
+    data->ibuf[i][1] = 0;
+  }
 
   /* real to complex fast fourier transform */
   fftw_execute(data->plan);
 
-  /* TODO: normalize */
-
-  /* power spectrum (ie. polar magnitude) */
+  /* power spectrum */
   sum = 0;
-  data->ibuf[0] = 0;
-  for (i = 1; i < nsampl / 2 + 1; ++i)
+  for (i = 0; i < nx; ++i)
   {
     const double re = data->obuf[i][0];
     const double im = data->obuf[i][1];
-    const double p = sqrt(re * re + im * im);
-    data->ibuf[i] = p;
-    sum += p;
+
+    x[i] = sqrt(re * re + im * im);
+    sum += x[i];
+    /* if (x[i] > max) max = x[i]; */
   }
 
-  /* normalize (percent of) */
-  if (sum > 1) for (i = 0; i < nsampl / 2 + 1; ++i) data->ibuf[i] /= sum;
+#if 1
+  /* x[i] is percent of total spectrum */
+  for (i = 0; i < nx; ++i) x[i] /= sum;
+#else
+  /* normalize x[i] */
+  if (max != 0) for (i = 0; i < nx; ++i) x[i] /= max;
+#endif
 }
 
 static void convolve
@@ -498,13 +520,15 @@ static void do_fir(filter_data_t* data, int16_t* buf, unsigned int nsampl)
 {
   static const unsigned int nh = sizeof(fir_coeffs) / sizeof(fir_coeffs[0]);
 
+  double* const ibuf = (double*)data->ibuf;
+
   unsigned int i;
 
   /* convert int16 dual channel into double single channel */
   for (i = 0; i < nsampl; ++i)
-    data->ibuf[i] = ((double)buf[i * 2 + 0] + (double)buf[i * 2 + 1]) / 2;
+    ibuf[i] = ((double)buf[i * 2 + 0] + (double)buf[i * 2 + 1]) / 2;
 
-  convolve(data->fir_buf, nsampl + nh, data->ibuf, nsampl, fir_coeffs, nh);
+  convolve(data->fir_buf, nsampl + nh, ibuf, nsampl, fir_coeffs, nh);
 
   /* convert back to int16_t */
   for (i = 0; i < nsampl; ++i)
@@ -532,12 +556,13 @@ static void filter_apply
     ui_update_begin();
 
     do_power_spectrum(data, buf, nsampl);
-    ui_update_ips(data->ibuf, nsampl / 2 + 1);
+    ui_update_ips((double*)data->ibuf, nsampl / 2);
 
+#if 0
     do_fir(data, buf, nsampl);
-
     do_power_spectrum(data, buf, nsampl);
-    ui_update_ops(data->ibuf, nsampl / 2 + 1);
+    ui_update_ops((double*)data->ibuf, nsampl / 2);
+#endif
 
     ui_update_end();
   }
