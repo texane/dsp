@@ -13,9 +13,12 @@ typedef struct tonegen
   /* tone count */
   unsigned int n;
 
+  /* amplitude, phase */
+  double a[32];
+  double phi[32];
+
   /* current angle, angular step */
   double w[32];
-  double a[32];
   double dw[32];
 
 } tonegen_t;
@@ -25,7 +28,8 @@ static void tonegen_init(tonegen_t* gen)
   gen->n = 0;
 }
 
-static void tonegen_add(tonegen_t* gen, double freq, double fsampl, double a)
+static void tonegen_add
+(tonegen_t* gen, double freq, double fsampl, double a, double phi)
 {
   /* freq the tone frequency */
   /* fsampl the sampling frequency */
@@ -35,6 +39,7 @@ static void tonegen_add(tonegen_t* gen, double freq, double fsampl, double a)
 
   gen->w[i] = 0.0;
   gen->a[i] = a;
+  gen->phi[i] = phi;
   gen->dw[i] = (2.0 * M_PI * freq) / fsampl;
 }
 
@@ -50,7 +55,7 @@ static void tonegen_read(tonegen_t* gen, fftw_complex* buf, unsigned int n)
 
     for (j = 0; j < gen->n; ++j)
     {
-      buf[i][0] += gen->a[j] * sin(gen->w[j]);
+      buf[i][0] += gen->a[j] * cos(gen->w[j] + gen->phi[j]);
       gen->w[j] += gen->dw[j];
     }
   }
@@ -145,7 +150,11 @@ static void ps_abs(fftw_complex* x, unsigned int nx, double* xx)
        frequency side of the spectrum since negative side is symetric. thus,
        the actual scaling factor is (2 / nx).
      */
-    xx[i] = (2 * (x[i][0] - x[i][1])) / (double)nx;
+
+    const double re = x[i][0];
+    const double im = x[i][1];
+
+    xx[i] = (2 * sqrt(re * re + im * im)) / (double)nx;
   }
 }
 
@@ -174,9 +183,9 @@ static void do_complex_dft(void)
   unsigned int i;
 
   tonegen_init(&gen);
-  tonegen_add(&gen, 600, fsampl, 10);
-  tonegen_add(&gen, 6000, fsampl, 5);
-  tonegen_add(&gen, 18000, fsampl, 2.5);
+  tonegen_add(&gen, 600, fsampl, 10, 0);
+  tonegen_add(&gen, 6000, fsampl, 5, 0);
+  tonegen_add(&gen, 18000, fsampl, 2.5, M_PI / 3);
   tonegen_read(&gen, x, nx);
 
   dft(x, nx, y);
@@ -198,7 +207,7 @@ static void do_complex_dft(void)
   for (i = 0; i < nw; ++i)
   {
     const double f = fband * (double)i;
-    printf("%lf %lf\n", f, w[i]);
+    printf("%lf %lf %lf %lf\n", f, w[i], y[i][0] / (double)nbands, -1 * y[i][1] / (double)nbands);
   }
 #endif
 
