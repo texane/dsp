@@ -88,7 +88,7 @@ static void make_lowpass_fresp
   const unsigned int ii = fcut * 2 * nx / fsampl;
   
   unsigned int i;
-  for (i = 0; i < ii; ++i) x[i] = 1;
+  for (i = 0; i < ii; ++i) x[i] = (double)(1 * nx);
   for (; i < nx; ++i) x[i] = 0;
 
 #if 0
@@ -111,7 +111,7 @@ static void idft(const double* x, unsigned int nx, double* xx)
 
   for (i = 0; i < nx; ++i)
   {
-    in[i][0] = x[i] * sqrt(0.5);
+    in[i][0] = x[i] / (double)nx;
     in[i][1] = 0;
   }
 
@@ -120,8 +120,8 @@ static void idft(const double* x, unsigned int nx, double* xx)
   for (i = 0; i < nx; ++i)
   {
     const double re = out[i][0];
-    const double im = out[i][1];
 #if 0
+    const double im = out[i][1];
     xx[i] = sqrt(re * re + im * im) / (double)nx;
 #else
     xx[i] = re / (double)nx;
@@ -169,7 +169,19 @@ static void do_impulse_response(void)
 
   make_lowpass_fresp(fresp, nbands, fcut, fsampl);
   make_blackman_window(w, nbands);
+
   idft(fresp, nbands, iresp);
+  for (i = 0; i <= nbands / 2; ++i)
+  {
+#define swap_double(__a, __b)			\
+    do {					\
+      const double __tmp = __a;			\
+      __a = __b;				\
+      __b = __tmp;				\
+    } while (0)
+    swap_double(iresp[i], iresp[nbands / 2 + i]);
+  }
+
   mul(iresp, w, nbands);
 
   for (i = 0; i < nbands; ++i) printf("%lf\n", iresp[i]);
