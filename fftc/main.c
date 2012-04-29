@@ -4,62 +4,7 @@
 #include <string.h>
 #include <math.h>
 #include <fftw3.h>
-
-
-/* tone generator */
-
-typedef struct tonegen
-{
-  /* tone count */
-  unsigned int n;
-
-  /* amplitude, phase */
-  double a[32];
-  double phi[32];
-
-  /* current angle, angular step */
-  double w[32];
-  double dw[32];
-
-} tonegen_t;
-
-static void tonegen_init(tonegen_t* gen)
-{
-  gen->n = 0;
-}
-
-static void tonegen_add
-(tonegen_t* gen, double freq, double fsampl, double a, double phi)
-{
-  /* freq the tone frequency */
-  /* fsampl the sampling frequency */
-  /* a the amplitude */
-
-  const unsigned int i = gen->n++;
-
-  gen->w[i] = 0.0;
-  gen->a[i] = a;
-  gen->phi[i] = phi;
-  gen->dw[i] = (2.0 * M_PI * freq) / fsampl;
-}
-
-static void tonegen_read(tonegen_t* gen, fftw_complex* buf, unsigned int n)
-{
-  unsigned int i;
-  unsigned int j;
-
-  for (i = 0; i < n; ++i)
-  {
-    buf[i][0] = 0;
-    buf[i][1] = 0;
-
-    for (j = 0; j < gen->n; ++j)
-    {
-      buf[i][0] += gen->a[j] * cos(gen->w[j] + gen->phi[j]);
-      gen->w[j] += gen->dw[j];
-    }
-  }
-}
+#include "tonegen.h"
 
 
 /* millisecond to sample count */
@@ -206,7 +151,7 @@ static void do_complex_dft(void)
   tonegen_add(&gen, 2000, fsampl, 100, 0);
   tonegen_add(&gen, 4000, fsampl, 100, 0.666);
   tonegen_add(&gen, 6000, fsampl, 100, 0);
-  tonegen_read(&gen, x, nx);
+  tonegen_read_complex(&gen, x, nx);
 
   dft(x, nx, y);
   idft(y, nx, z);
