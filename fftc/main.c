@@ -154,6 +154,7 @@ static void ps_abs(fftw_complex* x, unsigned int nx, double* xx)
     const double re = x[i][0];
     const double im = x[i][1];
 
+    /* (a / n)^2 + (b / n)^2 = (a^2 + b^2) / n */
     xx[i] = (2 * sqrt(re * re + im * im)) / (double)nx;
   }
 }
@@ -170,10 +171,9 @@ static void compute_phi(fftw_complex* x, unsigned int nx, double* phi)
 
   for (i = 0; i < nxx; ++i)
   {
-    if (fabs(x[i][0]) >= 0.00001)
-      phi[i] = (2 * atan(x[i][1] / x[i][0])) / (double)nx;
-    else
-      phi[i] = 0;
+    /* ((im / n) / (re / n)) = (im / re) thus no scaling needed */
+    if (fabs(x[i][0]) >= 0.00001) phi[i] = atan(x[i][1] / x[i][0]);
+    else phi[i] = 0;
   }
 }
 
@@ -204,8 +204,7 @@ static void do_complex_dft(void)
 
   tonegen_init(&gen);
   tonegen_add(&gen, 2000, fsampl, 100, 0);
-  tonegen_add(&gen, 4000, fsampl, 100, M_PI / 3);
-  /* tonegen_add(&gen, 4000, fsampl, 100, 0.004363); */
+  tonegen_add(&gen, 4000, fsampl, 100, 0.666);
   tonegen_add(&gen, 6000, fsampl, 100, 0);
   tonegen_read(&gen, x, nx);
 
