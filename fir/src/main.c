@@ -6,53 +6,6 @@
 #include <fftw3.h>
 
 
-/* tone generator */
-
-typedef struct tonegen
-{
-  /* tone count */
-  unsigned int n;
-
-  /* current angle, angular step */
-  double w[32];
-  double dw[32];
-
-} tonegen_t;
-
-static void tonegen_init(tonegen_t* gen)
-{
-  gen->n = 0;
-}
-
-static void tonegen_add(tonegen_t* gen, double freq, double fsampl)
-{
-  /* freq the tone frequency */
-  /* fsampl the sampling frequency */
-
-  const unsigned int i = gen->n++;
-
-  gen->w[i] = 0.0;
-  gen->dw[i] = (2.0 * M_PI * freq) / fsampl;
-}
-
-static void tonegen_read(tonegen_t* gen, double* buf, unsigned int n)
-{
-  unsigned int i;
-  unsigned int j;
-
-  for (i = 0; i < n; ++i)
-  {
-    buf[i] = 0;
-
-    for (j = 0; j < gen->n; ++j)
-    {
-      buf[i] += sin(gen->w[j]);
-      gen->w[j] += gen->dw[j];
-    }
-  }
-}
-
-
 /* millisecond to sample count */
 
 static inline unsigned int ms_to_nsampl
