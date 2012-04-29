@@ -1,0 +1,40 @@
+[ introduction ]
+
+a sine wave can be fully defined by the equation, called the polar notation:
+m * cos(w + phi)
+where:
+. w the frequency (in radians per seconds),
+. m the amplitude,
+. phi the phase, an angle in radians.
+
+every function can be represented by an infinite sum of sine waves. the fourier analysis
+finds the values of (m, phi) for all the frequencies w_i, where 0 <= w_i < 2 * PI. In
+the fourier transform (mathematical sense), w_i varying steps are infinitely small. in
+the discrete fourier trasnform, the step is fixed and determines the transform resolution.
+
+from the shannon and nyquist theorem, it is known that the sampling frequency must be at
+least twice as the maximum frequency analysed.
+
+2 important points must be kept in mind to understand the DFT:
+. polar to rectangular conversion,
+. signal correlation.
+
+[[ polar to rectangular conversion ]]
+computations on sine waves in polar form is made difficult by the phase (phi term). there
+is a relation to turn a single sine wave in polar form into 2 sine waves of the same frequency,
+known as the rectangular form:
+m * cos(w + phi) = a * cos(w) + b * sin(w);
+
+[[ signal correlation ]]
+we can measure the correlation of 2 signals x and y by multiplying x[i] and y[i]. the more
+positive the result, the more correlated they are, and inversely for negative results.
+
+from the 2 above points, we can intuitively see the fourier transform as an algorithm that
+iterates over a set of frequencies w_i and correlates the sine (more accurately cos(w_i) and
+sin(w_i)) with an input function. each correlation result is sumed into an independent variable.
+this variable has 2 coefficients (the a and b of relation a * cos(w) + b * sin(w)).
+
+usually, (m, phi) are of interest since they represent the magnitude and the phase of a physical
+process being analysed. they relate to (a, b) with the following formula:
+m = sqrt(a^2 + b^2);
+phi = atan(b / a);
