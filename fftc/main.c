@@ -158,6 +158,25 @@ static void ps_abs(fftw_complex* x, unsigned int nx, double* xx)
   }
 }
 
+__attribute__((unused))
+static void compute_phi(fftw_complex* x, unsigned int nx, double* phi)
+{
+  /* x the fourier coefficient, rectangular form */
+  /* phi the phase */
+
+  const unsigned int nxx = nx / 2;
+
+  unsigned int i;
+
+  for (i = 0; i < nxx; ++i)
+  {
+    if (fabs(x[i][0]) >= 0.00001)
+      phi[i] = (2 * atan(x[i][1] / x[i][0])) / (double)nx;
+    else
+      phi[i] = 0;
+  }
+}
+
 static void do_complex_dft(void)
 {
   static const double fsampl = 48000;
@@ -177,19 +196,22 @@ static void do_complex_dft(void)
   fftw_complex* const y = fftw_malloc(nx * sizeof(fftw_complex));
   fftw_complex* const z = fftw_malloc(nx * sizeof(fftw_complex));
   double* w = fftw_malloc(nw * sizeof(double));
+  double* phi = fftw_malloc(nw * sizeof(double));
 
   tonegen_t gen;
 
   unsigned int i;
 
   tonegen_init(&gen);
-  tonegen_add(&gen, 600, fsampl, 10, 0);
-  tonegen_add(&gen, 6000, fsampl, 5, 0);
-  tonegen_add(&gen, 18000, fsampl, 2.5, M_PI / 3);
+  tonegen_add(&gen, 2000, fsampl, 100, 0);
+  tonegen_add(&gen, 4000, fsampl, 100, M_PI / 3);
+  /* tonegen_add(&gen, 4000, fsampl, 100, 0.004363); */
+  tonegen_add(&gen, 6000, fsampl, 100, 0);
   tonegen_read(&gen, x, nx);
 
   dft(x, nx, y);
   idft(y, nx, z);
+  compute_phi(y, nx, phi);
   ps_abs(y, nx, w);
 
 #if 0
@@ -207,7 +229,11 @@ static void do_complex_dft(void)
   for (i = 0; i < nw; ++i)
   {
     const double f = fband * (double)i;
-    printf("%lf %lf %lf %lf\n", f, w[i], y[i][0] / (double)nbands, -1 * y[i][1] / (double)nbands);
+    printf("%lf %lf %lf %lf %lf\n",
+	   f, w[i],
+	   y[i][0] / (double)nbands,
+	   -1 * y[i][1] / (double)nbands,
+	   phi[i]);
   }
 #endif
 
@@ -215,6 +241,7 @@ static void do_complex_dft(void)
   fftw_free(y);
   fftw_free(z);
   fftw_free(w);
+  fftw_free(phi);
 }
 
 
