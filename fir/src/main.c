@@ -7,6 +7,12 @@
 #include "tonegen.h"
 
 
+/* reference: http://www.exstrom.com/journal/sigproc/index.html */
+/* reference: http://en.wikipedia.org/wiki/Finite_impulse_response */
+/* reference: http://www.labbookpages.co.uk/audio/firWindowing.html */
+/* reference: https://github.com/vinniefalco/DSPFilters */
+
+
 /* millisecond to sample count */
 
 static inline unsigned int ms_to_nsampl
@@ -31,7 +37,7 @@ static inline double nsampl_to_fband(unsigned int nsampl, double fsampl)
 
 /* compute impulse response from frequency response. */
 
-static void make_lowpass_fresp
+__attribute__((unused)) static void make_lopass_fresp
 (double* x, unsigned int nx, double fcut, double fsampl)
 {
   /* make a lowpass frequency response */
@@ -59,6 +65,45 @@ static void make_lowpass_fresp
 #endif
 }
 
+__attribute__((unused)) static void make_hipass_fresp
+(double* x, unsigned int nx, double fcut, double fsampl)
+{
+  /* make a high frequency response */
+
+  /* fcut the cutoff frequency */
+  /* fsampl the sampling frequency */
+
+  const unsigned int ii = (fcut * 2 * nx) / fsampl;
+  
+  unsigned int i;
+  for (i = 0; i < ii; ++i) x[i] = 0;
+  for (; i < nx; ++i) x[i] = 1;
+
+  /* ensure first and last values are 0 */
+  x[0] = 0;
+  x[nx - 1] = 0;
+}
+
+__attribute__((unused)) static void make_bandpass_fresp
+(double* x, unsigned int nx, double fcut0, double fcut1, double fsampl)
+{
+  /* make a high frequency response */
+
+  /* fcut the cutoff frequency */
+  /* fsampl the sampling frequency */
+
+  const unsigned int ii0 = (fcut0 * 2 * nx) / fsampl;
+  const unsigned int ii1 = (fcut1 * 2 * nx) / fsampl;
+  
+  unsigned int i;
+  for (i = 0; i < ii0; ++i) x[i] = 0;
+  for (; i < ii1; ++i) x[i] = 1;
+  for (; i < nx; ++i) x[i] = 0;
+
+  /* ensure first and last values are 0 */
+  x[0] = 0;
+  x[nx - 1] = 0;
+}
 
 static void make_blackman_window(double* x, unsigned int nx)
 {
@@ -72,7 +117,7 @@ static void make_blackman_window(double* x, unsigned int nx)
 
 
 static void make_filter_kernel
-(const double* fresp, unsigned int nx, double* kernel)
+(const double* fresp, unsigned int nx, fftw_complex* kernel)
 {
   /* dsp_smith, p.298 */
 
@@ -91,10 +136,8 @@ static void make_filter_kernel
   for (i = 0; i < nx; ++i)
   {
     /* convert polar (no phase) to rectangular form */
-    /* frequency, in radians per seconds */
-    const double w = ((double)i * 2 * M_PI) / (double)nxx;
-    in[i][0] = fresp[i] * cos(w);
-    in[i][1] = fresp[i] * sin(w);
+    in[i][0] = fresp[i] / 2;
+    in[i][1] = 0;
   }
 
   /* alias the remaining coefficients */
@@ -110,25 +153,41 @@ static void make_filter_kernel
 
   /* make the filter kernel: shift and pad with 0 */
 
-  nk = nxx < 16 ? nxx : 16;
+  nk = nxx < 64 ? nxx : 64;
 
   const unsigned int nkk = nk / 2;
   for (i = 0; i < nkk; ++i)
   {
     const double re = out[i][0];
     const double im = out[i][1];
-    const double mag = sqrt(re * re + im * im) / (double)nxx;
+#if 0
+    const double mag = sqrt(re * re + im * im) / nxx;
+    if (im) printf("# im: %lf\n", im);
     kernel[nkk - i - 1] = mag;
     kernel[nkk + i + 0] = mag;
+#else
+    kernel[nkk - i - 1][0] = re;
+    kernel[nkk - i - 1][1] = im;
+    kernel[nkk + i + 0][0] = re;
+    kernel[nkk + i + 0][1] = im;
+#endif
   }
 
-  for (i = nk; i < nxx; ++i) kernel[i] = 0;
+  for (i = nk; i < nxx; ++i)
+  {
+    kernel[i][0] = 0;
+    kernel[i][1] = 0;
+  }
 
   /* apply blackman window on [0, nk[ */
 
-  double* const w = malloc(nk * sizeof(double)); 
+  double* const w = malloc(nk * sizeof(double));
   make_blackman_window(w, nk);
-  for (i = 0; i < nk; ++i) kernel[i] *= w[i];
+  for (i = 0; i < nk; ++i)
+  {
+    kernel[i][0] *= w[i];
+    kernel[i][1] *= w[i];
+  }
   free(w);
 
   fftw_free(in);
@@ -137,7 +196,8 @@ static void make_filter_kernel
 }
 
 
-static void fft(const double* x, unsigned int nx, double* xx)
+__attribute__((unused)) static void fft
+(fftw_complex* x, unsigned int nx, double* xx)
 {
   fftw_complex* const in = fftw_malloc(nx * sizeof(fftw_complex));
   fftw_complex* const out = fftw_malloc(nx * sizeof(fftw_complex));
@@ -145,8 +205,8 @@ static void fft(const double* x, unsigned int nx, double* xx)
 
   for (i = 0; i < nx; ++i)
   {
-    in[i][0] = x[i];
-    in[i][1] = 0;
+    in[i][0] = x[i][0];
+    in[i][1] = x[i][1];
   }
 
   fftw_plan plan = fftw_plan_dft_1d(nx, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
@@ -165,7 +225,7 @@ static void fft(const double* x, unsigned int nx, double* xx)
 }
 
 
-static void convolve
+__attribute__((unused)) static void convolve
 (
  double* xx, unsigned int nxx,
  const double* x, unsigned int nx,
@@ -199,21 +259,23 @@ static void do_impulse_response(void)
   const unsigned int nbands = 1 + fsampl / (2 * fband);
 
   double* const fresp = malloc(nbands * sizeof(double));
-  double* const kernel = malloc(nbands * 2 *  sizeof(double));
+  fftw_complex* const kernel = malloc(nbands * 2 *  sizeof(fftw_complex));
   double* const kernel_fresp = malloc(nbands * sizeof(double));
 
   unsigned int i;
 
-  make_lowpass_fresp(fresp, nbands, fcut, fsampl);
+  /* make_hipass_fresp(fresp, nbands, fcut, fsampl); */
+  make_bandpass_fresp(fresp, nbands, fcut, fcut + 2000, fsampl);
   make_filter_kernel(fresp, nbands, kernel);
 
-#if 0
+#if 1
   fft(kernel, nbands * 2, kernel_fresp);
   for (i = 0; i < nbands; ++i)
   {
-    printf("%lf %lf %lf %lf\n",
+    printf("%lf %lf %lf %lf %lf\n",
 	   (double)i * fband,
-	   fresp[i], kernel[i],
+	   fresp[i],
+	   kernel[i][0], kernel[i][1],
 	   kernel_fresp[i]);
   }
 #else
