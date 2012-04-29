@@ -1,4 +1,5 @@
 #include <math.h>
+#include <fftw3.h>
 #include "tonegen.h"
 
 void tonegen_init(tonegen_t* gen)
@@ -33,6 +34,25 @@ void tonegen_read(tonegen_t* gen, double* buf, unsigned int n)
     for (j = 0; j < gen->n; ++j)
     {
       buf[i] += gen->a[j] * cos(gen->w[j] + gen->phi[j]);
+      gen->w[j] += gen->dw[j];
+    }
+  }
+}
+
+void tonegen_read_complex
+(tonegen_t* gen, fftw_complex* buf, unsigned int n)
+{
+  unsigned int i;
+  unsigned int j;
+
+  for (i = 0; i < n; ++i)
+  {
+    buf[i][0] = 0;
+    buf[i][1] = 0;
+
+    for (j = 0; j < gen->n; ++j)
+    {
+      buf[i][0] += gen->a[j] * cos(gen->w[j] + gen->phi[j]);
       gen->w[j] += gen->dw[j];
     }
   }
