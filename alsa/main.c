@@ -38,7 +38,7 @@
 /* static configuration */
 
 #define CONFIG_FSAMPL 44100
-#define CONFIG_FBAND 50
+#define CONFIG_FBAND 25
 #define CONFIG_NCHAN 2
 #define CONFIG_TIMING_CONTROL 0
 #define CONFIG_ENABLE_PLAYBACK 1
@@ -306,23 +306,22 @@ static unsigned int read_dev
 
 /* sampling */
 
-static inline unsigned int fband_to_nsampl
-(unsigned int fband, unsigned int fsampl)
-{
-  return 1 + fsampl / fband;
-}
-
-static unsigned int get_nsampl(void)
+static void get_sampling_config(unsigned int* fband, unsigned int* nsampl)
 {
   unsigned int log2_nsampl;
-  unsigned int nsampl;
 
-  /* compute nsampl according to fband. adjust to be pow2 */
-  nsampl = fband_to_nsampl(CONFIG_FBAND, CONFIG_FSAMPL);
-  log2_nsampl = (unsigned int)log2(nsampl);
-  if (nsampl != (1 << log2_nsampl)) nsampl = 1 << (log2_nsampl + 1);
+  *fband = CONFIG_FBAND;
 
-  return nsampl;
+  /* fband to nsampl */
+  *nsampl = CONFIG_FSAMPL / *fband;
+
+  /* fft works better with log2 sizes */
+  log2_nsampl = (unsigned int)log2(*nsampl);
+  if (*nsampl != (1 << log2_nsampl))
+    *nsampl = 1 << (log2_nsampl + 1);
+
+  /* always recompute band frequency (log2 or rounding) */
+  *fband = CONFIG_FSAMPL / *nsampl;
 }
 
 static inline unsigned int nsampl_to_ms
@@ -558,11 +557,9 @@ static void filter_apply
     do_power_spectrum(data, buf, nsampl);
     ui_update_ips((double*)data->ibuf, nsampl / 2);
 
-#if 0
     do_fir(data, buf, nsampl);
     do_power_spectrum(data, buf, nsampl);
     ui_update_ops((double*)data->ibuf, nsampl / 2);
-#endif
 
     ui_update_end();
   }
@@ -583,8 +580,10 @@ int main(int ac, char** av)
   snd_pcm_t* odev = NULL;
 #endif
 
-  const unsigned int fband = CONFIG_FBAND;
-  const unsigned int nsampl = get_nsampl();
+  unsigned int fband;
+  unsigned int nsampl;
+
+  get_sampling_config(&fband, &nsampl);
 
   /* in bytes */
   const unsigned int buf_size = nsampl * CONFIG_NCHAN * sizeof(int16_t);

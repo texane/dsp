@@ -4,7 +4,7 @@
 
 #define CONFIG_USE_IMPULSE 1
 #define CONFIG_MIN_FREQ 0
-#define CONFIG_MAX_FREQ 4000
+#define CONFIG_MAX_FREQ 8000
 
 
 /* a tile is a subwindow in the main window, with a frame
@@ -251,7 +251,7 @@ int ui_init(unsigned int nband, unsigned int fband)
   if (hscale == 0)
 #endif
   {
-    hscale = 4;
+    hscale = 2;
     screen_width = (hscale * nband) + TILE_FRAME_DIM;
   }
 
@@ -348,7 +348,7 @@ void update_common_ps
   for (i = 0; i < ps_nband; ++i)
   {
     const unsigned int j = ps_min_band + i;
-    unsigned int hacked_percent = convert_percent(ps_bands[j]);
+    unsigned int hacked_percent = convert_percent(ps_bands[j]) * 4;
     if (hacked_percent == 0) continue ;
     if (hacked_percent > 100) hacked_percent = 100;
     tile_set_band(&ps_tile, i, hacked_percent, k, c);
