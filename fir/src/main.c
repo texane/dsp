@@ -4,6 +4,7 @@
 #include <string.h>
 #include <math.h>
 #include <fftw3.h>
+#include "tonegen.h"
 
 
 /* millisecond to sample count */
@@ -41,8 +42,12 @@ static void make_lowpass_fresp
   const unsigned int ii = fcut * 2 * nx / fsampl;
   
   unsigned int i;
-  for (i = 0; i < ii; ++i) x[i] = (double)(1 * nx);
+  for (i = 0; i < ii; ++i) x[i] = 1;
   for (; i < nx; ++i) x[i] = 0;
+
+  /* ensure first and last values are 0 */
+  x[0] = 0;
+  x[nx - 1] = 0;
 
 #if 0
   {
@@ -52,38 +57,6 @@ static void make_lowpass_fresp
       x[ii - fu + i] = cos((double)i * delta);
   }
 #endif
-}
-
-
-static void idft(const double* x, unsigned int nx, double* xx)
-{
-  fftw_complex* in = fftw_malloc(nx * sizeof(fftw_complex));
-  fftw_complex* out = fftw_malloc(nx * sizeof(fftw_complex));
-  fftw_plan plan = fftw_plan_dft_1d(nx, in, out, FFTW_BACKWARD, FFTW_ESTIMATE);
-  unsigned int i;
-
-  for (i = 0; i < nx; ++i)
-  {
-    in[i][0] = x[i] / (double)nx;
-    in[i][1] = 0;
-  }
-
-  fftw_execute(plan);
-
-  for (i = 0; i < nx; ++i)
-  {
-    const double re = out[i][0];
-#if 0
-    const double im = out[i][1];
-    xx[i] = sqrt(re * re + im * im) / (double)nx;
-#else
-    xx[i] = re / (double)nx;
-#endif
-  }
-
-  fftw_free(in);
-  fftw_free(out);
-  fftw_destroy_plan(plan);
 }
 
 
@@ -98,11 +71,122 @@ static void make_blackman_window(double* x, unsigned int nx)
 }
 
 
-static void mul(double* x, double* y, unsigned int nx)
+static void make_filter_kernel
+(const double* fresp, unsigned int nx, double* kernel)
 {
-  /* assume nx == ny */
+  /* dsp_smith, p.298 */
+
+  const unsigned int nxx = nx * 2;
+
+  fftw_complex* in;
+  fftw_complex* out;
+  fftw_plan plan;
   unsigned int i;
-  for (i = 0; i < nx; ++i) x[i] *= y[i];
+  unsigned int nk;
+
+  /* compute impulse response using idft(fresp) */
+
+  in = fftw_malloc(nxx * sizeof(fftw_complex));
+  out = fftw_malloc(nxx * sizeof(fftw_complex));
+  for (i = 0; i < nx; ++i)
+  {
+    /* convert polar (no phase) to rectangular form */
+    /* frequency, in radians per seconds */
+    const double w = ((double)i * 2 * M_PI) / (double)nxx;
+    in[i][0] = fresp[i] * cos(w);
+    in[i][1] = fresp[i] * sin(w);
+  }
+
+  /* alias the remaining coefficients */
+
+  for (i = 0; i < nx; ++i)
+  {
+    in[nx + i][0] = in[nx - i - 1][0];
+    in[nx + i][1] = in[nx - i - 1][1];
+  }
+
+  plan = fftw_plan_dft_1d(nxx, in, out, FFTW_BACKWARD, FFTW_ESTIMATE);
+  fftw_execute(plan);
+
+  /* make the filter kernel: shift and pad with 0 */
+
+  nk = nxx < 16 ? nxx : 16;
+
+  const unsigned int nkk = nk / 2;
+  for (i = 0; i < nkk; ++i)
+  {
+    const double re = out[i][0];
+    const double im = out[i][1];
+    const double mag = sqrt(re * re + im * im) / (double)nxx;
+    kernel[nkk - i - 1] = mag;
+    kernel[nkk + i + 0] = mag;
+  }
+
+  for (i = nk; i < nxx; ++i) kernel[i] = 0;
+
+  /* apply blackman window on [0, nk[ */
+
+  double* const w = malloc(nk * sizeof(double)); 
+  make_blackman_window(w, nk);
+  for (i = 0; i < nk; ++i) kernel[i] *= w[i];
+  free(w);
+
+  fftw_free(in);
+  fftw_free(out);
+  fftw_destroy_plan(plan);
+}
+
+
+static void fft(const double* x, unsigned int nx, double* xx)
+{
+  fftw_complex* const in = fftw_malloc(nx * sizeof(fftw_complex));
+  fftw_complex* const out = fftw_malloc(nx * sizeof(fftw_complex));
+  unsigned int i;
+
+  for (i = 0; i < nx; ++i)
+  {
+    in[i][0] = x[i];
+    in[i][1] = 0;
+  }
+
+  fftw_plan plan = fftw_plan_dft_1d(nx, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
+  fftw_execute(plan);
+  fftw_destroy_plan(plan);
+
+  for (i = 0; i < nx / 2; ++i)
+  {
+    const double re = out[i][0];
+    const double im = out[i][1];
+    xx[i] = (2 * sqrt(re * re + im * im)) / (double)nx;
+  }
+
+  fftw_free(in);
+  fftw_free(out);
+}
+
+
+static void convolve
+(
+ double* xx, unsigned int nxx,
+ const double* x, unsigned int nx,
+ const double* h, unsigned int nh
+)
+{
+  int i;
+  int j;
+
+  for (i = 0; i < (int)nxx; ++i)
+  {
+    xx[i] = 0;
+
+    for (j = 0; j < (int)nh; ++j)
+    {
+      if (i - j < 0) continue ;
+      if (i - j >= nx) continue ;
+
+      xx[i] += h[j] * x[i - j];
+    }
+  }
 }
 
 
@@ -110,37 +194,46 @@ static void do_impulse_response(void)
 {
   static const double fsampl = 48000;
   static const double fband = 100;
-  static const double fcut = 6000;
+  static const double fcut = 4000;
 
   const unsigned int nbands = 1 + fsampl / (2 * fband);
 
   double* const fresp = malloc(nbands * sizeof(double));
-  double* const iresp = malloc(nbands * 2 * sizeof(double));
-  double* const w = malloc(nbands * sizeof(double)); 
+  double* const kernel = malloc(nbands * 2 *  sizeof(double));
+  double* const kernel_fresp = malloc(nbands * sizeof(double));
 
   unsigned int i;
 
   make_lowpass_fresp(fresp, nbands, fcut, fsampl);
-  make_blackman_window(w, nbands);
+  make_filter_kernel(fresp, nbands, kernel);
 
-  idft(fresp, nbands, iresp);
-  for (i = 0; i <= nbands / 2; ++i)
+#if 0
+  fft(kernel, nbands * 2, kernel_fresp);
+  for (i = 0; i < nbands; ++i)
   {
-#define swap_double(__a, __b)			\
-    do {					\
-      const double __tmp = __a;			\
-      __a = __b;				\
-      __b = __tmp;				\
-    } while (0)
-    swap_double(iresp[i], iresp[nbands / 2 + i]);
+    printf("%lf %lf %lf %lf\n",
+	   (double)i * fband,
+	   fresp[i], kernel[i],
+	   kernel_fresp[i]);
   }
-
-  mul(iresp, w, nbands);
-
-  for (i = 0; i < nbands; ++i) printf("%lf\n", iresp[i]);
+#else
+  tonegen_t gen;
+  const unsigned int nx = nbands * 2 * 5;
+  double* ibuf = malloc(nx * sizeof(double));
+  double* obuf = malloc(nx * sizeof(double));
+  tonegen_init(&gen);
+  tonegen_add(&gen, fsampl, 2000, 10, 0);
+  tonegen_add(&gen, fsampl, 6000, 10, 0);
+  tonegen_read(&gen, ibuf, nx);
+  convolve(obuf, nx, ibuf, nx, kernel, nbands * 2);
+  for (i = 0; i < nx; ++i) printf("%u %lf %lf\n", i, ibuf[i], obuf[i]);
+  free(ibuf);
+  free(obuf);
+#endif
 
   free(fresp);
-  free(iresp);
+  free(kernel);
+  free(kernel_fresp);
 }
 
 
@@ -149,65 +242,3 @@ int main(int ac, char** av)
   do_impulse_response();
   return 0;
 }
-
-
-#if 0
-
-/* main */
-
-int main(int ac, char** av)
-{
-  static const double fsampl = 48000.0;
-
-  static const double ftones[] = { 100.0, 12000.0 };
-  /* static const double ftones[] = { 400.0, 666.0, 4000.0, 22222.0 }; */
-  /* static const double ftones[] = { 400.0, 666.0, 4000.0 }; */
-  /* static const double ftones[] = { 400.0 }; */
-
-  /* may be updated for nsampl to fit pow2 */
-  double fband = 20.0;
-
-  unsigned int log2_nsampl;
-
-  tonegen_t gen;
-  unsigned int nsampl;
-  unsigned int nbin;
-  unsigned int i;
-  unsigned int nxx;
-  double* x = NULL;
-  double* xx = NULL;
-  double* ps = NULL;
-  double* gains = NULL;
-
-  /* compute nsampl according to fband. adjust to be pow2 */
-  nsampl = fband_to_nsampl(fband, fsampl);
-  log2_nsampl = (unsigned int)log2(nsampl);
-  if (nsampl != (1 << log2_nsampl))
-  {
-    nsampl = 1 << (log2_nsampl + 1);
-    fband = nsampl_to_fband(nsampl, fsampl);
-  }
-
-  nbin = nsampl / 2 + 1;
-
-  x = malloc(nsampl * sizeof(double));
-  ps = malloc(nbin * sizeof(double));
-
-  /* init tone generator and output samples */
-  tonegen_init(&gen);
-  for (i = 0; i < sizeof(ftones) / sizeof(double); ++i)
-    tonegen_add(&gen, ftones[i], fsampl);
-  tonegen_read(&gen, x, nsampl);
-
-#if 0 /* unused */
-  /* set some frequency gains to 3 db */
-  gains = malloc(nbin * sizeof(double));
-  for (i = 0; i < nbins; ++i) gains[i] = 0;
-  gains[freq_to_bin(666.0, fband)] = 3;
-  gains[freq_to_bin(22222.0, fband)] = 3;
-#endif
-
-  return 0;
-}
-
-#endif

@@ -1,1 +1,1 @@
-gcc -Wall main.c -lm -lfftw3
+gcc -Wall -I../../tonegen main.c ../../tonegen/tonegen.c -lm -lfftw3
