@@ -1,2 +1,2 @@
 #!/usr/bin/env sh
-gcc -Wall -O3 main.c -lm
+gcc -Wall -O3 -I. main.c tonegen.c -lm
