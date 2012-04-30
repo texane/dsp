@@ -105,6 +105,36 @@ __attribute__((unused)) static void make_bandpass_fresp
   x[nx - 1] = 0;
 }
 
+__attribute__((unused)) static void make_multipass_fresp
+(
+ double* x, unsigned int nx,
+ const double* fcuts, unsigned int ncuts,
+ double fsampl
+)
+{
+  /* fresp[i : fresp[i + 1] - 1] = fcuts[ fresp[i] ] */
+
+  const double fband = fsampl / (((double)nx - 1) * 2);
+
+  double xx;
+  unsigned int i;
+  unsigned int j;
+
+  xx = -1;
+  j = 0;
+  for (i = 0; i < nx; ++i)
+  {
+    if ((j < ncuts) && (((double)i * fband) >= fcuts[j]))
+    {
+      xx *= -1;
+      ++j;
+    }
+
+    x[i] = (1 + xx) / 2;
+  }
+}
+
+
 static void make_blackman_window(double* x, unsigned int nx)
 {
   unsigned int i;
@@ -153,7 +183,7 @@ static void make_filter_kernel
 
   /* make the filter kernel: shift and pad with 0 */
 
-  nk = nxx < 64 ? nxx : 64;
+  nk = nxx < 32 ? nxx : 32;
 
   const unsigned int nkk = nk / 2;
   for (i = 0; i < nkk; ++i)
@@ -254,7 +284,10 @@ static void do_impulse_response(void)
 {
   static const double fsampl = 48000;
   static const double fband = 100;
-  static const double fcut = 4000;
+
+  static const double fcuts[] =
+  { 1000, 2500, 3000, 3200, 6000, 10000, 14000, 20000 };
+  static const unsigned int ncuts = sizeof(fcuts) / sizeof(fcuts[0]);
 
   const unsigned int nbands = 1 + fsampl / (2 * fband);
 
@@ -264,8 +297,9 @@ static void do_impulse_response(void)
 
   unsigned int i;
 
-  /* make_hipass_fresp(fresp, nbands, fcut, fsampl); */
-  make_bandpass_fresp(fresp, nbands, fcut, fcut + 2000, fsampl);
+  /* make_hipass_fresp(fresp, nbands, fcuts[0], fsampl); */
+  /* make_bandpass_fresp(fresp, nbands, fcuts[0], fcuts[1], fsampl); */
+  make_multipass_fresp(fresp, nbands, fcuts, ncuts, fsampl);
   make_filter_kernel(fresp, nbands, kernel);
 
 #if 1
