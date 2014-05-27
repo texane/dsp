@@ -38,3 +38,14 @@ usually, (m, phi) are of interest since they represent the magnitude and the pha
 process being analysed. they relate to (a, b) with the following formula:
 m = sqrt(a^2 + b^2);
 phi = atan(b / a);
+
+
+[ references ]
+http://code.google.com/p/music-lock/source/browse/trunk/src/NoteDetector.cpp
+http://en.wikipedia.org/wiki/Constant_Q_transform
+https://github.com/bradley219/avr_fft
+http://davidegironi.blogspot.fr/2013/06/avr-atmega-audio-input-rma-using-fft.html#.UkBOTYQs_RY
+http://coolarduino.wordpress.com/2012/03/24/radix-4-fft-integer-math/
+http://www.waitingforfriday.com/index.php/Fast_Hartley_Transformation_Library_for_AVR_microcontrollers
+http://wiki.openmusiclabs.com/wiki/ArduinoFFT
+http://wiki.openmusiclabs.com/wiki/ArduinoFHT
