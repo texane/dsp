@@ -9,7 +9,7 @@ typedef struct csv_handle
 {
   size_t nline;
   size_t ncol;
-  double** cols;
+  double* cols;
 } csv_handle_t;
 
 

@@ -10,13 +10,13 @@
 #include "csv.h"
 
 
-#define PERROR() printf("%s %u\n", __FILE__, __LINE__)
+#ifdef CSV_CONFIG_DEBUG
+#define CSV_PERROR() \
+do { printf("%s %u\n", __FILE__, __LINE__); fflush(stdout); } while (0)
+#else
+#define CSV_PERROR()
+#endif /* CSV_CONFIG_DEBUG */
 
-
-typedef struct linked_list
-{
-  struct linked_list* next;
-} linked_list_t;
 
 typedef struct mapped_file
 {
@@ -79,7 +79,7 @@ static int next_line(mapped_file_t* mf, mapped_line_t* ml)
     }
   }
 
-  if (p == ml->base) return -1;
+  if ((p + skipnl) == ml->base) return -1;
 
   /* update offset */
   mf->off += (p - ml->base) + skipnl;
@@ -87,17 +87,32 @@ static int next_line(mapped_file_t* mf, mapped_line_t* ml)
   return 0;
 }
 
-static int next_col(mapped_line_t* ml, uint8_t* buf)
+static int next_data_line(mapped_file_t* mf, mapped_line_t* ml)
+{
+  /* next line containing data */
+
+  while (next_line(mf, ml) == 0)
+  {
+    /* skip empty line */
+    if (ml->len == 0) continue ;
+
+    /* skip comment line */
+    if (ml->base[0] == '#') continue ;
+
+    return 0;
+  }
+
+  return -1;
+}
+
+static int next_col(mapped_line_t* ml)
 {
   if (ml->off == ml->len) return -1;
 
-  for (; ml->off < ml->len; ++ml->off, ++buf)
+  for (; ml->off < ml->len; ++ml->off)
   {
     if (ml->base[ml->off] == ' ') break;
-    *buf = ml->base[ml->off];
   }
-
-  *buf = 0;
 
   /* skip comma */
   if (ml->off != ml->len) ++ml->off;
@@ -105,111 +120,25 @@ static int next_col(mapped_line_t* ml, uint8_t* buf)
   return 0;
 }
 
-__attribute__((unused))
-static size_t get_col_count(mapped_file_t* mf)
+static size_t get_col_count(mapped_line_t* ml)
 {
-  mapped_file_t tmp_mf = *mf;
-  mapped_line_t ml;
-  unsigned char buf[256];
   size_t col_count;
-
-  if (next_line(&tmp_mf, &ml) == -1) return 0;
-  for (col_count = 0; next_col(&ml, buf) != -1; ++col_count) ;
+  for (col_count = 0; next_col(ml) != -1; ++col_count) ;
   return col_count;
 }
 
-static inline bool is_digit(unsigned char c)
-{
-  return (c >= '0' && c <= '9') || (c == '.') || (c == '-');
-}
-
-__attribute__((unused))
-static void skip_first_line(mapped_file_t* mf)
-{
-  mapped_file_t tmp_mf = *mf;
-  mapped_line_t ml;
-
-  if (next_line(&tmp_mf, &ml) == -1) return ;
-
-  unsigned char buf[256];
-  if (next_col(&ml, buf) == -1) return ;
-
-  for (size_t i = 0; buf[i]; ++i)
-  {
-    // skip the line if non digit token found
-    if (is_digit(buf[i]) == false)
-    {
-      *mf = tmp_mf;
-      break;
-    }
-  }
-}
-
-static int next_value(mapped_file_t& mf, double* v)
+static int next_value(mapped_file_t* mf, double* x)
 {
   char* endptr;
 
-  if (mf.off >= mf.len) return -1;
+  if (mf->off >= mf->len) return -1;
 
-  *v = strtod((char*)mf.base + mf.off, &endptr);
+  *x = strtod((char*)mf->base + mf->off, &endptr);
 
   /* endptr points to the next caracter */
-  mf.off = endptr - (char*)mf.base + 1;
+  mf->off = endptr - (char*)mf->base + 1;
 
   return 0;
-}
-
-int table_read_csv_file
-(table& table, const char* path, const vector<table::type_id>& tids)
-{
-  // table_create not assumed
-
-  int error = -1;
-
-  if (table_create(table) == -1) return -1;
-
-  table.tids = tids;
-
-  mapped_file_t mf;
-  if (map_file(&mf, path) == -1) return -1;
-
-  // get the column count
-  table.col_count = tids.size();
-
-  vector<table::data_type> row;
-  row.resize(table.col_count);
-
-  table::data_type value;
-  while (1)
-  {
-    // no more value
-    if (next_value(mf, value, tids[0]) == -1) break ;
-
-    size_t col_pos = 0;
-    goto add_first_value;
-    for (; col_pos < table.col_count; ++col_pos)
-    {
-      if (next_value(mf, value, tids[col_pos]) == -1) break ;
-    add_first_value:
-      row[col_pos] = value;
-    }
-
-    if (col_pos != table.col_count)
-    {
-      // bug: if the end of file terminates with '\n'
-      goto on_error;
-    }
-
-    table.rows.push_back(row);
-    ++table.row_count;
-  }
-
-  // success
-  error = 0;
-
- on_error:
-  unmap_file(&mf);
-  return error;
 }
 
 
@@ -218,34 +147,68 @@ int table_read_csv_file
 int csv_load_file(csv_handle_t* csv, const char* path)
 {
   mapped_file_t mf;
+  mapped_file_t saved_mf;
   mapped_line_t ml;
   int err = -1;
+  size_t cpos;
+  size_t lpos;
 
   if (map_file(&mf, path))
   {
-    PERROR();
+    CSV_PERROR();
     goto on_error_0;
   }
+
+  saved_mf = mf;
 
   csv->nline = 0;
   csv->ncol = 0;
   csv->cols = NULL;
 
-  while (1)
-  {
-    /* empty file */
-    if (next_line(&mf, &ml) == -1) break ;
+  /* get column count */
 
-    /* comment */
-    if (ml->base[0] == '#') continue ;
+  if (next_data_line(&mf, &ml))
+  {
+    CSV_PERROR();
+    goto on_error_1;
   }
 
-  /* guess delimiter */
+  csv->ncol = get_col_count(&ml);
+  if (csv->ncol == 0) goto on_error_1;
+
+  /* get line count */
+
+  for (csv->nline = 1; next_data_line(&mf, &ml) == 0; ++csv->nline) ;
+
+  csv->cols = malloc(csv->nline * csv->ncol * sizeof(double));
+  if (csv->cols == NULL)
+  {
+    CSV_PERROR();
+    goto on_error_1;
+  }
+
+  /* get values */
+
+  mf = saved_mf;
+  for (lpos = 0; next_data_line(&mf, &ml) == 0; ++lpos)
+  {
+    for (cpos = 0; cpos != csv->ncol; ++cpos)
+    {
+      double* const x = csv->cols + cpos * csv->nline + lpos;
+      if (next_value(&ml, x))
+      {
+	CSV_PERROR();
+	goto on_error_2;
+      }
+    }
+  }
+
+  /* success */
 
   err = 0;
 
  on_error_2:
-  free(csv->cols);
+  if (err) free(csv->cols);
  on_error_1:
   unmap_file(&mf);
  on_error_0:
@@ -254,7 +217,8 @@ int csv_load_file(csv_handle_t* csv, const char* path)
 
 int csv_close(csv_handle_t* csv)
 {
-  free(csv->cols);
+  /* may be null if no lines */
+  if (csv->cols != NULL) free(csv->cols);
   return 0;
 }
 
@@ -264,31 +228,35 @@ int csv_get_col(csv_handle_t* csv, size_t i, double** x, size_t* n)
   /* x the value array */
   /* n the array size */
 
-  *x = csv->cols[i];
-  *n = csv->nlines;
+  *x = csv->cols + i * csv->nline;
+  *n = csv->nline;
 
   return 0;
 }
 
 
-/* unit */
+#if CSV_CONFIG_UNIT /* unit */
 
 int main(int ac, char** av)
 {
-  const char* filename = av[1];
-  const size_t col = atoi(av[2]);
-  double* x;
+  const char* const filename = "./fu.csv";
+  csv_handle_t csv;
+  double* x[2];
   size_t n;
   size_t i;
 
-  if (csv_read_col(filename, col, &x, &n))
-  {
-    return -1;
-  }
+  csv_load_file(&csv, filename);
 
-  for (i = 0; i != n; ++i)
-  {
-  }
+  printf("nline == %zu, ncol == %zu\n", csv.nline, csv.ncol);
+
+  csv_get_col(&csv, 1, &x[0], &n);
+  csv_get_col(&csv, 2, &x[1], &n);
+
+  for (i = 0; i != n; ++i) printf("%lf %lf\n", x[0][i], x[1][i]);
+
+  csv_close(&csv);
 
   return 0;
 }
+
+#endif /* CSV_CONFIG_UNIT */
