@@ -4,64 +4,17 @@
 #include <string.h>
 #include <math.h>
 #include <fftw3.h>
+#include "../common/csv.h"
 
 
-#if 0
-
-typedef uint16_t dsp_sampl_type;
-
-
-static void alloc_sampl_buf()
-{
-}
-
-
-static void free_sampl_buf()
-{
-}
-
-
-/* dsp input device */
-
-typedef struct dsp_dev
-{
-  /* dummy signal generator */
-
-  double t; /* current time */
-  double dt; /* time step */
-  double w; /* angular frequency */
-
-} dsp_dev_t;
-
-static void dsp_dev_open(dsp_dev_t* dev, dsp_buf_t* buf)
-{
-  static double fsampl = 48000;
-  static unsigned int tsampl = ;
-}
-
-static void dsp_dev_close(dsp_dev_t* dev)
-{
-}
-
-static void dsp_dev_read(dsp_dev_t* dev, void* buf, unsigned int n)
-{
-  /* read n samples into buf */
-
-  unsigned int i;
-  for (i = 0; i < n; ++i) buf[i] = ;
-}
-
-
-/* dsp output device */
-
-typedef struct dsp_odev
-{
-  
-
-} dsp_odev_t;
-
+#ifdef CONFIG_PERROR
+#define PERROR()				\
+do {						\
+printf("[!] %s, %u\n", __FILE__, __LINE__);	\
+} while (0)
+#else
+#define PERROR()
 #endif
-
 
 
 /* compute sizes for a given bandwidth and time */
@@ -168,129 +121,6 @@ static void fft
 }
 
 
-/* inplace finite impulse response filter */
-
-#if 0 /* unused */
-static inline unsigned int min_uint(unsigned int a, unsigned int b)
-{
-  return a < b ? a : b;
-}
-#endif /* unused */
-
-static void convolve
-(
- double** xx, unsigned int* nxx,
- const double* x, unsigned int nx,
- const double* h, unsigned int nh
-)
-{
-  int i;
-  int j;
-
-  *nxx = nx + nh;
-  *xx = malloc((*nxx) * sizeof(double));
-
-  for (i = 0; i < (int)*nxx; ++i)
-  {
-    (*xx)[i] = 0;
-
-    for (j = 0; j < (int)nh; ++j)
-    {
-      if (i - j < 0) continue ;
-      if (i - j >= nx) continue ;
-
-      (*xx)[i] += h[j] * x[i - j];
-    }
-  }
-}
-
-static void fir
-(
- double** xx, unsigned int* nxx,
- const double* x, unsigned int nx
-)
-{
-  static const double h[] =
-  {
-#if 0
-    1964.09456418888,
-    -10208.338288738,
-    16795.2945884697,
-    -0.0,
-    -23281.999649468,
-    0.0572589041085133,
-    37237.1250088098,
-    -0.0,
-    -50515.8159352444,
-    -0.0,
-    56020.202875443,
-    -0.0,
-    -50515.8159352444,
-    -0.0,
-    37237.1250088098,
-    0.0572589041085133,
-    -23281.999649468,
-    -0.0,
-    16795.2945884697,
-    -10208.338288738,
-    1964.09456418888
-#else
-# include "/tmp/bar.h"
-#endif
-  };
-
-  static const unsigned int nh = sizeof(h) / sizeof(h[0]);
-  convolve(xx, nxx, x, nx, h, nh);
-}
-
-
-/* tone generator */
-
-typedef struct tonegen
-{
-  /* tone count */
-  unsigned int n;
-
-  /* current angle, angular step */
-  double w[32];
-  double dw[32];
-
-} tonegen_t;
-
-static void tonegen_init(tonegen_t* gen)
-{
-  gen->n = 0;
-}
-
-static void tonegen_add(tonegen_t* gen, double freq, double fsampl)
-{
-  /* freq the tone frequency */
-  /* fsampl the sampling frequency */
-
-  const unsigned int i = gen->n++;
-
-  gen->w[i] = 0.0;
-  gen->dw[i] = (2.0 * M_PI * freq) / fsampl;
-}
-
-static void tonegen_read(tonegen_t* gen, double* buf, unsigned int n)
-{
-  unsigned int i;
-  unsigned int j;
-
-  for (i = 0; i < n; ++i)
-  {
-    buf[i] = 0;
-
-    for (j = 0; j < gen->n; ++j)
-    {
-      buf[i] += sin(gen->w[j]);
-      gen->w[j] += gen->dw[j];
-    }
-  }
-}
-
-
 /* millisecond to sample count */
 
 static inline unsigned int ms_to_nsampl
@@ -313,85 +143,187 @@ static inline double nsampl_to_fband(unsigned int nsampl, double fsampl)
 }
 
 
+/* command line */
+
+typedef struct
+{
+#define CMDLINE_FLAG_FSAMPL (1 << 0)
+#define CMDLINE_FLAG_TSAMPL_LO (1 << 1)
+#define CMDLINE_FLAG_TSAMPL_HI (1 << 2)
+#define CMDLINE_FLAG_IFILE (1 << 3)
+#define CMDLINE_FLAG_OFILE (1 << 4)
+#define CMDLINE_FLAG_ICOL (1 << 5)
+  uint32_t flags;
+
+  double fsampl;
+  double tsampl_lo;
+  double tsampl_hi;
+
+  const char* ifile;
+  const char* ofile;
+
+  size_t icol;
+
+} cmdline_info_t;
+
+static double str_to_double(const char* s)
+{
+  if ((strlen(s) > 2) && (s[0] == '0') && (s[1] == 'x'))
+    return (double)strtoul(s, NULL, 16);
+  return strtod(s, NULL);
+}
+
+static int get_cmdline_info(cmdline_info_t* ci, int ac, const char** av)
+{
+  size_t i;
+
+  ci->flags = 0;
+
+  if (ac & 1) goto on_error;
+
+  for (i = 0; i != ac; i += 2)
+  {
+    const char* const k = av[i + 0];
+    const char* const v = av[i + 1];
+
+    if (strcmp(k, "-fsampl") == 0)
+    {
+      ci->flags |= CMDLINE_FLAG_FSAMPL;
+      ci->fsampl = str_to_double(v);
+    }
+    else if (strcmp(k, "-tsampl_lo") == 0)
+    {
+      /* in seconds, double format */
+      ci->flags |= CMDLINE_FLAG_TSAMPL_LO;
+      ci->tsampl_lo = str_to_double(v);
+    }
+    else if (strcmp(k, "-tsampl_hi") == 0)
+    {
+      /* in seconds, double format */
+      ci->flags |= CMDLINE_FLAG_TSAMPL_HI;
+      ci->tsampl_hi = str_to_double(v);
+    }
+    else if (strcmp(k, "-ifile") == 0)
+    {
+      /* input file */
+      ci->flags |= CMDLINE_FLAG_TSAMPL_IFILE;
+      ci->ifile = v;
+    }
+    else if (strcmp(k, "-ofile") == 0)
+    {
+      /* output file */
+      ci->flags |= CMDLINE_FLAG_TSAMPL_OFILE;
+      ci->ofile = v;
+    }
+    else if (strcmp(k, "-icol") == 0)
+    {
+      /* input column */
+      ci->flags |= CMDLINE_FLAG_TSAMPL_ICOL;
+      ci->icol = (size_t)str_to_double(v);
+    }
+    else
+    {
+      goto on_error;
+    }
+  }
+
+  return 0;
+
+ on_error:
+  PERROR();
+  return -1;
+}
+
 /* main */
 
 int main(int ac, char** av)
 {
-  static const double fsampl = 48000.0;
+  int err = -1;
+  cmdline_info_t ci;
+  csv_handle_t icsv;
+  double fband;
+  size_t nbin;
+  double* xx;
+  double* ps;
+  double* x;
+  size_t nxx;
+  size_t nx;
+  size_t log2_nx;
 
-  static const double ftones[] = { 100.0, 12000.0 };
-  /* static const double ftones[] = { 400.0, 666.0, 4000.0, 22222.0 }; */
-  /* static const double ftones[] = { 400.0, 666.0, 4000.0 }; */
-  /* static const double ftones[] = { 400.0 }; */
-
-  /* may be updated for nsampl to fit pow2 */
-  double fband = 20.0;
-
-  unsigned int log2_nsampl;
-
-  tonegen_t gen;
-  unsigned int nsampl;
-  unsigned int nbin;
-  unsigned int i;
-  unsigned int nxx;
-  double* x = NULL;
-  double* xx = NULL;
-  double* ps = NULL;
-  double* gains = NULL;
-
-  /* compute nsampl according to fband. adjust to be pow2 */
-  nsampl = fband_to_nsampl(fband, fsampl);
-  log2_nsampl = (unsigned int)log2(nsampl);
-  if (nsampl != (1 << log2_nsampl))
+  if (get_cmdline_info(&ci))
   {
-    nsampl = 1 << (log2_nsampl + 1);
-    fband = nsampl_to_fband(nsampl, fsampl);
+    PERROR();
+    goto on_error;
   }
 
-  nbin = nsampl / 2 + 1;
+  if ((ci.flags & CMDLINE_FLAG_IFILE) == 0)
+  {
+    PERROR();
+    goto on_error;
+  }
 
-  x = malloc(nsampl * sizeof(double));
+  if (csv_load_file(&icsv, ci.ifile))
+  {
+    PERROR();
+    goto on_error;
+  }
+
+  if ((ci.flags & CMDLINE_FLAG_ICOL) == 0)
+  {
+    PERROR();
+    goto on_error;
+  }
+
+  if (csv_get_col(&icsv, ci.icol, &x, &nx))
+  {
+    PERROR();
+    goto on_error;
+  }
+
+  /* TODO: convert tsampl_lo tsampl_hi into nx */
+
+  if ((ci->flags & CMDLINE_FLAG_FSAMPL) == 0)
+  {
+    PERROR();
+    goto on_error;
+  }
+
+  /* adjust nx to pow2 */
+
+  log2_nx = log2(nx);
+  if (nx != (1 << log2_nx)) nx = 1 << (log2_nx + 1);
+
+  fband = nsampl_to_fband(nx, ci.fsampl);
+
+  nbin = nx / 2 + 1;
+
   ps = malloc(nbin * sizeof(double));
-
-  /* init tone generator and output samples */
-  tonegen_init(&gen);
-  for (i = 0; i < sizeof(ftones) / sizeof(double); ++i)
-    tonegen_add(&gen, ftones[i], fsampl);
-  tonegen_read(&gen, x, nsampl);
-
-#if 0 /* unused */
-  /* set some frequency gains to 3 db */
-  gains = malloc(nbin * sizeof(double));
-  for (i = 0; i < nbins; ++i) gains[i] = 0;
-  gains[freq_to_bin(666.0, fband)] = 3;
-  gains[freq_to_bin(22222.0, fband)] = 3;
-#endif
-
-#if 0 /* compute print the power spectrum */
+  if (ps == NULL)
+  {
+    PERROR();
+    goto on_error;
+  }
 
   xx = malloc(nbin * 2 * sizeof(double));
-  fft(xx, x, nsampl);
+  if (xx == NULL)
+  {
+    PERROR();
+    goto on_error;
+  }
 
+  fft(xx, x, nx);
   fft_to_power_spectrum(ps, xx, nbin);
 
   for (i = 0; i < nbin; ++i)
-    printf("%lf %lf\n", bin_to_freq(i, fband), ps[i]);
-
-#else /* print the signal time domain */
-
-  fir(&xx, &nxx, x, nsampl);
-
-  for (i = 0; i < (nsampl < 1000 ? nsampl : 1000); ++i)
   {
-    printf("%lf %lf %lf\n", (double)i / fsampl, xx[i], x[i]);
+    printf("%lf %lf\n", bin_to_freq(i, fband), ps[i]);
   }
 
-#endif
+  err = 0;
 
-  if (x) free(x);
-  if (xx) free(xx);
-  if (ps) free(ps);
-  if (gains) free(gains);
+ on_error:
+  free(ps);
+  free(xx);
 
-  return 0;
+  return err;
 }
