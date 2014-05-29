@@ -173,13 +173,20 @@ static double str_to_double(const char* s)
   return strtod(s, NULL);
 }
 
-static int get_cmdline_info(cmdline_info_t* ci, int ac, const char** av)
+static int get_cmdline_info(cmdline_info_t* ci, int ac, char** av)
 {
   size_t i;
 
+  if (ac & 1) goto on_error;
+
   ci->flags = 0;
 
-  if (ac & 1) goto on_error;
+  ci->fsampl = 0;
+  ci->tsampl_lo = 0;
+  ci->tsampl_hi = 0;
+  ci->ifile = NULL;
+  ci->ofile = NULL;
+  ci->icol = 0;
 
   for (i = 0; i != ac; i += 2)
   {
@@ -206,19 +213,19 @@ static int get_cmdline_info(cmdline_info_t* ci, int ac, const char** av)
     else if (strcmp(k, "-ifile") == 0)
     {
       /* input file */
-      ci->flags |= CMDLINE_FLAG_TSAMPL_IFILE;
+      ci->flags |= CMDLINE_FLAG_IFILE;
       ci->ifile = v;
     }
     else if (strcmp(k, "-ofile") == 0)
     {
       /* output file */
-      ci->flags |= CMDLINE_FLAG_TSAMPL_OFILE;
+      ci->flags |= CMDLINE_FLAG_OFILE;
       ci->ofile = v;
     }
     else if (strcmp(k, "-icol") == 0)
     {
       /* input column */
-      ci->flags |= CMDLINE_FLAG_TSAMPL_ICOL;
+      ci->flags |= CMDLINE_FLAG_ICOL;
       ci->icol = (size_t)str_to_double(v);
     }
     else
@@ -226,6 +233,8 @@ static int get_cmdline_info(cmdline_info_t* ci, int ac, const char** av)
       goto on_error;
     }
   }
+
+  /* check and default values */
 
   return 0;
 
@@ -246,72 +255,95 @@ int main(int ac, char** av)
   double* xx;
   double* ps;
   double* x;
-  size_t nxx;
   size_t nx;
-  size_t log2_nx;
+  size_t i;
+  size_t n;
 
-  if (get_cmdline_info(&ci))
+  if (get_cmdline_info(&ci, ac - 1, av + 1))
   {
     PERROR();
-    goto on_error;
+    goto on_error_0;
   }
 
   if ((ci.flags & CMDLINE_FLAG_IFILE) == 0)
   {
     PERROR();
-    goto on_error;
+    goto on_error_0;
   }
 
   if (csv_load_file(&icsv, ci.ifile))
   {
     PERROR();
-    goto on_error;
+    goto on_error_0;
   }
 
   if ((ci.flags & CMDLINE_FLAG_ICOL) == 0)
   {
     PERROR();
-    goto on_error;
+    goto on_error_1;
   }
 
   if (csv_get_col(&icsv, ci.icol, &x, &nx))
   {
     PERROR();
-    goto on_error;
+    goto on_error_1;
   }
 
-  /* TODO: convert tsampl_lo tsampl_hi into nx */
+  /* default tsampl_lo tsampl_hi */
 
-  if ((ci->flags & CMDLINE_FLAG_FSAMPL) == 0)
+  if ((ci.flags & CMDLINE_FLAG_FSAMPL) == 0)
   {
     PERROR();
-    goto on_error;
+    goto on_error_1;
   }
 
-  /* adjust nx to pow2 */
+  if ((ci.flags & CMDLINE_FLAG_TSAMPL_LO) == 0)
+  {
+    ci.flags |= CMDLINE_FLAG_TSAMPL_LO;
+    ci.tsampl_lo = 0;
+  }
 
-  log2_nx = log2(nx);
-  if (nx != (1 << log2_nx)) nx = 1 << (log2_nx + 1);
+  if ((ci.flags & CMDLINE_FLAG_TSAMPL_HI) == 0)
+  {
+    ci.flags |= CMDLINE_FLAG_TSAMPL_HI;
+    ci.tsampl_hi = ci.fsampl * (double)nx;
+  }
 
-  fband = nsampl_to_fband(nx, ci.fsampl);
+  /* recompute sample count */
 
-  nbin = nx / 2 + 1;
+  i = (size_t)floor(ci.tsampl_lo * ci.fsampl);
+  if (i >= nx)
+  {
+    PERROR();
+    goto on_error_1;
+  }
+
+  n = (size_t)ceil((ci.tsampl_hi - ci.tsampl_lo) * ci.fsampl);
+  if ((i + n) > nx)
+  {
+    PERROR();
+    goto on_error_1;
+  }
+
+  fband = nsampl_to_fband(n, ci.fsampl);
+
+  nbin = n / 2 + 1;
 
   ps = malloc(nbin * sizeof(double));
   if (ps == NULL)
   {
     PERROR();
-    goto on_error;
+    goto on_error_1;
   }
 
   xx = malloc(nbin * 2 * sizeof(double));
   if (xx == NULL)
   {
     PERROR();
-    goto on_error;
+    goto on_error_2;
   }
 
-  fft(xx, x, nx);
+  fft(xx, x + i, n);
   fft_to_power_spectrum(ps, xx, nbin);
 
   for (i = 0; i < nbin; ++i)
@@ -321,9 +353,11 @@ int main(int ac, char** av)
 
   err = 0;
 
- on_error:
-  free(ps);
   free(xx);
-
+ on_error_2:
+  free(ps);
+ on_error_1:
+  csv_close(&icsv);
+ on_error_0:
   return err;
 }
