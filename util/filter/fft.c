@@ -129,23 +129,25 @@ static inline double nsampl_to_fband(unsigned int nsampl, double fsampl)
 
 /* command line */
 
+typedef struct node
+{
+  double triple[3];
+  struct node* next;
+} node_t;
+
 typedef struct
 {
 #define CMDLINE_FLAG_FSAMPL (1 << 0)
-#define CMDLINE_FLAG_TSAMPL_LO (1 << 1)
-#define CMDLINE_FLAG_TSAMPL_HI (1 << 2)
-#define CMDLINE_FLAG_IFILE (1 << 3)
-#define CMDLINE_FLAG_OFILE (1 << 4)
-#define CMDLINE_FLAG_ICOL (1 << 5)
-#define CMDLINE_FLAG_FBAND_LO (1 << 6)
-#define CMDLINE_FLAG_FBAND_HI (1 << 7)
+#define CMDLINE_FLAG_TSAMPL (1 << 1)
+#define CMDLINE_FLAG_IFILE (1 << 2)
+#define CMDLINE_FLAG_OFILE (1 << 3)
+#define CMDLINE_FLAG_ICOL (1 << 4)
   uint32_t flags;
 
   double fsampl;
-  double tsampl_lo;
-  double tsampl_hi;
-  double fband_lo;
-  double fband_hi;
+  double tsampl[2];
+
+  node_t* filters;
 
   const char* ifile;
   const char* ofile;
@@ -161,22 +163,34 @@ static double str_to_double(const char* s)
   return strtod(s, NULL);
 }
 
+static int str_to_tuple(const char* s, double* t, size_t n)
+{
+  size_t i;
+
+  for (i = 0; i != n; ++i)
+  {
+    t[i] = str_to_double(s);
+    for (; *s && (*s != ':'); ++s) ;
+    if (*s == 0) return -1;
+    ++s;
+  }
+
+  return 0;
+}
+
 static int get_cmdline_info(cmdline_info_t* ci, int ac, char** av)
 {
+  node_t* node;
   size_t i;
 
   if (ac & 1) goto on_error;
 
   ci->flags = 0;
-
   ci->fsampl = 0;
-  ci->tsampl_lo = 0;
-  ci->tsampl_hi = 0;
+  ci->filters = NULL;
   ci->ifile = NULL;
   ci->ofile = NULL;
   ci->icol = 0;
-  ci->fband_lo = 0;
-  ci->fband_hi = 0;
 
   for (i = 0; i != ac; i += 2)
   {
@@ -188,17 +202,20 @@ static int get_cmdline_info(cmdline_info_t* ci, int ac, char** av)
       ci->flags |= CMDLINE_FLAG_FSAMPL;
       ci->fsampl = str_to_double(v);
     }
-    else if (strcmp(k, "-tsampl_lo") == 0)
+    else if (strcmp(k, "-tsampl") == 0)
     {
-      /* in seconds, double format */
-      ci->flags |= CMDLINE_FLAG_TSAMPL_LO;
-      ci->tsampl_lo = str_to_double(v);
+      /* tlo:thi */
+      ci->flags |= CMDLINE_FLAG_TSAMPL;
+      str_to_tuple(v, ci->tsampl, 2);
     }
-    else if (strcmp(k, "-tsampl_hi") == 0)
+    else if (strcmp(k, "-filter") == 0)
     {
-      /* in seconds, double format */
-      ci->flags |= CMDLINE_FLAG_TSAMPL_HI;
-      ci->tsampl_hi = str_to_double(v);
+      /* flo:fhi:coeff */
+      node = malloc(sizeof(node_t));
+      if (node == NULL) goto on_error;
+      node->next = ci->filters;
+      ci->filters = node;
+      str_to_tuple(v, node->triple, 3);
     }
     else if (strcmp(k, "-ifile") == 0)
     {
@@ -217,18 +234,6 @@ static int get_cmdline_info(cmdline_info_t* ci, int ac, char** av)
       /* input column */
       ci->flags |= CMDLINE_FLAG_ICOL;
       ci->icol = (size_t)str_to_double(v);
-    }
-    else if (strcmp(k, "-fband_lo") == 0)
-    {
-      /* frequency band low bound */
-      ci->flags |= CMDLINE_FLAG_FBAND_LO;
-      ci->fband_lo = (size_t)str_to_double(v);
-    }
-    else if (strcmp(k, "-fband_hi") == 0)
-    {
-      /* frequency band hi bound */
-      ci->flags |= CMDLINE_FLAG_FBAND_HI;
-      ci->fband_hi = (size_t)str_to_double(v);
     }
     else
     {
@@ -262,6 +267,7 @@ int main(int ac, char** av)
   size_t j;
   size_t k;
   size_t n;
+  node_t* pos;
 
   if (get_cmdline_info(&ci, ac - 1, av + 1))
   {
@@ -301,28 +307,23 @@ int main(int ac, char** av)
     goto on_error_1;
   }
 
-  if ((ci.flags & CMDLINE_FLAG_TSAMPL_LO) == 0)
+  if ((ci.flags & CMDLINE_FLAG_TSAMPL) == 0)
   {
-    ci.flags |= CMDLINE_FLAG_TSAMPL_LO;
-    ci.tsampl_lo = 0;
-  }
-
-  if ((ci.flags & CMDLINE_FLAG_TSAMPL_HI) == 0)
-  {
-    ci.flags |= CMDLINE_FLAG_TSAMPL_HI;
-    ci.tsampl_hi = ci.fsampl * (double)nx;
+    ci.flags |= CMDLINE_FLAG_TSAMPL;
+    ci.tsampl[0] = 0.0;
+    ci.tsampl[1] = ci.fsampl * (double)nx;
   }
 
   /* recompute sample count */
 
-  i = (size_t)floor(ci.tsampl_lo * ci.fsampl);
+  i = (size_t)floor(ci.tsampl[0] * ci.fsampl);
   if (i >= nx)
   {
     PERROR();
     goto on_error_1;
   }
 
-  n = (size_t)ceil((ci.tsampl_hi - ci.tsampl_lo) * ci.fsampl);
+  n = (size_t)ceil((ci.tsampl[1] - ci.tsampl[0]) * ci.fsampl);
   if ((i + n) > nx)
   {
     PERROR();
@@ -333,51 +334,24 @@ int main(int ac, char** av)
 
   nbin = n / 2 + 1;
 
-  /* coefficients */
-
-  if ((ci.flags & CMDLINE_FLAG_FBAND_LO) == 0)
-  {
-    PERROR();
-    goto on_error_1;
-  }
-
-  if ((ci.fband_lo < 0) || (ci.fband_lo > (double)nbin * fband))
-  {
-    PERROR();
-    goto on_error_1;
-  }
-
-  if ((ci.flags & CMDLINE_FLAG_FBAND_HI) == 0)
-  {
-    PERROR();
-    goto on_error_1;
-  }
-
-  if ((ci.fband_hi < 0) || (ci.fband_hi > (double)nbin * fband))
-  {
-    PERROR();
-    goto on_error_1;
-  }
-
-  if (ci.fband_lo > ci.fband_hi)
-  {
-    PERROR();
-    goto on_error_1;
-  }
+  /* build filtering coeff array */
 
   coeffs = malloc(nbin * sizeof(double));
-  if (coeffs == NULL)
+  if (coeffs == NULL) goto on_error_1;
+
+  for (j = 0; j != nbin; ++j) coeffs[j] = 1.0;
+
+  for (pos = ci.filters; pos; pos = pos->next)
   {
-    PERROR();
-    goto on_error_1;
+    if (pos->triple[0] < 0) goto on_error_2;
+    if (pos->triple[1] > ((double)nbin * fband)) goto on_error_2;
+    if (pos->triple[0] > pos->triple[1]) goto on_error_2;
+
+    j = floor(pos->triple[0] / fband);
+    k = ceil(pos->triple[1] / fband);
+    if (k > nbin) k = nbin;
+    for (; j != k; ++j) coeffs[j] = pos->triple[2];
   }
-
-  for (j = 0; j != nbin; ++j) coeffs[j] = 4.0;
-
-  j = floor(ci.fband_lo / fband);
-  k = ceil(ci.fband_hi / fband);
-  if (k > nbin) k = nbin;
-  for (; j != k; ++j) coeffs[j] = 0.0;
 
   /* output */
 
@@ -399,6 +373,13 @@ int main(int ac, char** av)
 
   free(xx);
  on_error_2:
+  pos = ci.filters;
+  while (pos != NULL)
+  {
+    node_t* const tmp = pos;
+    pos = pos->next;
+    free(tmp);
+  }
   free(coeffs);
  on_error_1:
   csv_close(&icsv);

@@ -2,10 +2,9 @@
 
 ./a.out \
 -fsampl 100000 \
--tsampl_lo 1 \
--tsampl_hi 5 \
--fband_lo 0 \
--fband_hi 1 \
+-tsampl 1:2 \
+-filter 0:0.01:0 \
+-filter 0.01:50000:2.0 \
 -ifile 0000.dat \
 -ofile /tmp/o.dat \
--icol 1
+-icol 2
